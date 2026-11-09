@@ -55,13 +55,13 @@ npm run package:staging      # staging zip + sha256
 
 ## 7. Staging 安全部署包（父端上传）
 
-说明：[deploy-staging-package.md](./deploy-staging-package.md)
+说明：[deploy-staging-package.md](./deploy-staging-package.md) · 构建 commit **`f562774a843e`**
 
 | 产物 | 路径 |
 |------|------|
 | 展开目录 | `/opt/cursor/artifacts/staging-deploy-bundle/` |
-| ZIP | `/opt/cursor/artifacts/etai-stock-watch-staging-<commit>.zip` |
-| SHA256 | `/opt/cursor/artifacts/staging-deploy-sha256.txt` |
+| ZIP | `/opt/cursor/artifacts/etai-stock-watch-staging-f562774a843e.zip` |
+| SHA256 | `2d41e8e555b68a31bb82373ff4a925699b8bcfda3d0abe762715a97144b037d0`（见 `staging-deploy-sha256.txt`） |
 | 元数据 | `/opt/cursor/artifacts/staging-deploy-report.json` |
 
 迁移顺序：`0001_initial.sql` → `0002_import_financial.sql`

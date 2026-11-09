@@ -1,5 +1,7 @@
 # 部署准备（未执行部署）
 
+> **父端 staging 上传包**：见 [deploy-staging-package.md](./deploy-staging-package.md)；本地生成 `npm run package:staging`（产物在 `/opt/cursor/artifacts/`）。
+
 ## Cloudflare Worker
 
 - `wrangler.toml`：`database_id` 占位；`EOD_CRON_ENABLED=false`
