@@ -9,6 +9,7 @@ compatibility_flags = ["nodejs_compat"]
 binding = "DB"
 database_name = "etai-stock-watch-db"
 database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
 
 [assets]
 directory = "dist/client"

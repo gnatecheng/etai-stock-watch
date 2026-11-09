@@ -121,18 +121,48 @@ async function renderScreener(root: HTMLElement) {
 async function renderSignals(root: HTMLElement) {
   const data = await api("/api/signals");
   root.replaceChildren();
+  root.appendChild(
+    el(`<p class="card muted">可解释理由仅供工程演示，不构成投资建议。</p>`),
+  );
   for (const s of data.items) {
-    root.appendChild(
-      el(`
+    const card = el(`
       <article class="card">
         <div class="row">
           <h3>${s.symbol} <span class="pill ${s.direction === "sell" ? "sell" : ""}">${s.direction}</span></h3>
           <span class="muted">${s.trade_date}</span>
         </div>
         <p class="muted">${(s.reasons ?? []).join("；")}</p>
+        ${
+          s.direction === "buy" || s.direction === "sell"
+            ? `<button class="btn" data-confirm>确认模拟${s.direction === "buy" ? "买入" : "卖出"}（PAPER）</button>`
+            : ""
+        }
       </article>
-    `),
-    );
+    `);
+    const btn = card.querySelector("[data-confirm]") as HTMLButtonElement | null;
+    if (btn) {
+      btn.onclick = async () => {
+        const inst = await api(`/api/instruments/${s.instrument_id}`);
+        const lot = inst.instrument.board_lot as number;
+        try {
+          const res = await api("/api/paper/confirm", {
+            method: "POST",
+            body: JSON.stringify({
+              instrumentId: s.instrument_id,
+              side: s.direction,
+              quantity: lot,
+              signalTradeDate: s.trade_date,
+              idempotencyKey: `${s.id}-${s.trade_date}`,
+            }),
+          });
+          alert(`模拟单已提交：${res.status}（${res.label}）`);
+          if (currentTab === "paper") renderPaper(root);
+        } catch (err) {
+          alert(String(err));
+        }
+      };
+    }
+    root.appendChild(card);
   }
 }
 
@@ -171,6 +201,15 @@ async function renderPaper(root: HTMLElement) {
       </article>
     `),
     );
+  }
+  const trades = data.trades ?? [];
+  if (trades.length) {
+    root.appendChild(el(`<h4 class="muted">最近模拟成交</h4>`));
+    for (const t of trades.slice(0, 5)) {
+      root.appendChild(
+        el(`<article class="card muted">${t.trade_date} ${t.side} ${t.quantity} @ ${(t.price_cents / 100).toFixed(2)}</article>`),
+      );
+    }
   }
 }
 

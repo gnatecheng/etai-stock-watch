@@ -25,6 +25,13 @@
 - **不得**修改现有 `etai` 主站、`etai-access-log` D1、`etai-apk` R2
 - 本仓库**未执行**部署、绑域、Secrets 写入
 
+## 本轮补强（验收）
+
+- 运行时交易日历 **仅认 `calendar_hk` 显式行**，缺失即 fail-closed（不再 weekday 推断）
+- 生产环境：`demo` 供应商、bootstrap、默认开发凭据 **代码拒绝**
+- 模拟成交：下一可交易 session 开盘价；无数据 → `pending`；批内 `cash_cents >= cost`
+- 测试：19 Vitest + `scripts/integration-regression.mjs` + Playwright 登录后截图
+
 ## 本 MVP 已实现
 
 - TypeScript：Hono API + Vite 静态中文 UI（移动适配）

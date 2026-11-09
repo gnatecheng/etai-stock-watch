@@ -8,7 +8,8 @@ export default {
     if (url.pathname.startsWith("/api")) {
       return app.fetch(request, env, ctx);
     }
-    return env.ASSETS.fetch(request);
+    if (env.ASSETS) return env.ASSETS.fetch(request);
+    return new Response("Static assets 未配置", { status: 404 });
   },
   async scheduled(_event: ScheduledEvent, env: Env, _ctx: ExecutionContext): Promise<void> {
     await scheduledEod(env);

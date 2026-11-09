@@ -1,0 +1,143 @@
+import { spawn } from "node:child_process";
+import { setTimeout as sleep } from "node:timers/promises";
+
+const BASE = "http://127.0.0.1:8787";
+let dev;
+
+async function waitReady(ms = 20000) {
+  const start = Date.now();
+  while (Date.now() - start < ms) {
+    try {
+      const r = await fetch(`${BASE}/api/health`);
+      if (r.ok) return;
+    } catch {
+      /* retry */
+    }
+    await sleep(300);
+  }
+  throw new Error("wrangler dev not ready");
+}
+
+async function json(path, init = {}) {
+  const res = await fetch(`${BASE}${path}`, init);
+  const data = await res.json().catch(() => ({}));
+  return { res, data };
+}
+
+function assert(cond, msg) {
+  if (!cond) throw new Error(msg);
+}
+
+async function run() {
+  dev = spawn("npx", ["wrangler", "dev", "--port", "8787"], {
+    cwd: process.cwd(),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  await waitReady();
+  const results = [];
+
+  const boot = await json("/api/admin/bootstrap", { method: "POST" });
+  assert(boot.res.ok, "bootstrap");
+  results.push("bootstrap");
+
+  const unauth = await json("/api/screener");
+  assert(unauth.res.status === 401, "screener 401");
+
+  const login = await json("/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: "admin@local.dev", password: "dev-admin-change-me" }),
+  });
+  assert(login.res.ok, "admin login");
+  const cookie = login.res.headers.get("set-cookie");
+  const csrf = login.data.csrfToken;
+
+  const testEmail = `regtest-${Date.now()}@local.dev`;
+  const invite = await json("/api/admin/invitations", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: cookie,
+      "X-CSRF-Token": csrf,
+      Origin: "http://127.0.0.1:8787",
+    },
+    body: JSON.stringify({ email: testEmail }),
+  });
+  assert(invite.res.ok, `invite create ${JSON.stringify(invite.data)}`);
+  const reg = await fetch(`${BASE}/api/auth/invite`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      inviteToken: invite.data.inviteToken,
+      email: testEmail,
+      password: "regtest-pass",
+      displayName: "回归测试",
+    }),
+  });
+  assert(reg.ok, `invite register ${await reg.clone().text()}`);
+  const userCookie = reg.headers.get("set-cookie");
+  const userCsrf = (await reg.json()).csrfToken;
+
+  await json("/api/watchlists", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: userCookie,
+      "X-CSRF-Token": userCsrf,
+      Origin: "http://127.0.0.1:8787",
+    },
+    body: JSON.stringify({ instrumentId: "inst_demo_00700" }),
+  });
+  const adminWl = await json("/api/watchlists", { headers: { Cookie: cookie } });
+  const userWl = await json("/api/watchlists", { headers: { Cookie: userCookie } });
+  assert(adminWl.data.items.length === 0, "admin watchlist isolated");
+  assert(userWl.data.items.length === 1, "user watchlist");
+
+  const jobs = await json("/api/jobs/latest", { headers: { Cookie: userCookie } });
+  assert(jobs.res.status === 403, "non-admin jobs");
+
+  for (const d of ["2024-08-06", "2024-08-12", "2024-08-19", "2024-08-26", "2024-09-02"]) {
+    await json("/api/admin/eod/run", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: cookie,
+        "X-CSRF-Token": csrf,
+        Origin: "http://127.0.0.1:8787",
+      },
+      body: JSON.stringify({ tradeDate: d }),
+    });
+  }
+  const sig = await json("/api/signals", { headers: { Cookie: cookie } });
+  assert((sig.data.items ?? []).length > 0, `signals after eod (${(sig.data.items ?? []).length})`);
+
+  const sigRow = sig.data.items.find((s) => s.direction === "buy") ?? sig.data.items[0];
+  const paper = await json("/api/paper/confirm", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: userCookie,
+      "X-CSRF-Token": userCsrf,
+      Origin: "http://127.0.0.1:8787",
+    },
+    body: JSON.stringify({
+      instrumentId: sigRow.instrument_id,
+      side: sigRow.direction === "sell" ? "sell" : "buy",
+      quantity: 100,
+      signalTradeDate: sigRow.trade_date,
+      idempotencyKey: `reg-${sigRow.id}`,
+    }),
+  });
+  assert(paper.res.ok, `paper confirm ${JSON.stringify(paper.data)}`);
+
+  console.log(JSON.stringify({ ok: true, results }, null, 2));
+}
+
+run()
+  .catch((e) => {
+    console.error(e);
+    process.exitCode = 1;
+  })
+  .finally(() => {
+    if (dev) dev.kill("SIGTERM");
+  });

@@ -15,7 +15,12 @@ import { nowIso } from "../lib/time";
 import { runEodPipeline } from "../pipeline/eod";
 import { confirmPaperOrder } from "../paper/engine";
 import { DEMO_FEE_SCHEDULES } from "../paper/fees";
-import { isDemoProvider } from "../env";
+import {
+  isDemoProvider,
+  paperTradingAllowed,
+  rejectDevCredentialsInProd,
+  demoMarketFeaturesAllowed,
+} from "../env";
 import { parseCsv, validateAndMapRows, newSnapshotMeta, persistBars } from "../providers/import";
 import { seedBuiltinCalendar, seedCalendarRange } from "../calendar/hk";
 
@@ -50,6 +55,9 @@ app.get("/api/meta", (c) =>
 app.post("/api/auth/login", async (c) => {
   const body = await c.req.json<{ email: string; password: string }>();
   if (!body.email || !body.password) return c.json({ error: "请输入邮箱与密码" }, 400);
+  if (rejectDevCredentialsInProd(c.env, body.email, body.password)) {
+    return c.json({ error: "生产环境不可使用默认开发凭据" }, 403);
+  }
   const user = await c.env.DB.prepare(
     "SELECT id, email, display_name, role, password_hash, status FROM users WHERE email = ?",
   )
@@ -286,6 +294,10 @@ app.get("/api/notifications", requireAuth, async (c) => {
 app.post("/api/paper/confirm", requireAuth, async (c) => {
   const csrfErr = requireCsrf(c);
   if (csrfErr) return csrfErr;
+  const allow = paperTradingAllowed(c.env);
+  if (!allow.allowed) {
+    return c.json({ error: allow.reason, code: "BLOCKED" }, 403);
+  }
   const u = c.get("user")!;
   const body = await c.req.json<{
     instrumentId: string;
@@ -323,7 +335,13 @@ app.post("/api/paper/confirm", requireAuth, async (c) => {
     fees,
   );
   if (!result.ok) return c.json({ error: result.message, code: result.code }, 400);
-  return c.json({ ok: true, orderId: result.orderId, paper: true, label: "模拟交易" });
+  return c.json({
+    ok: true,
+    orderId: result.orderId,
+    status: result.status,
+    paper: true,
+    label: "模拟交易",
+  });
 });
 
 app.get("/api/paper/positions", requireAuth, async (c) => {
@@ -361,6 +379,10 @@ app.get("/api/jobs/latest", requireAuth, requireAdmin, async (c) => {
 app.post("/api/admin/eod/run", requireAuth, requireAdmin, async (c) => {
   const csrfErr = requireCsrf(c);
   if (csrfErr) return csrfErr;
+  const allowed = demoMarketFeaturesAllowed(c.env);
+  if (!allowed.allowed && c.env.APP_ENV === "production") {
+    return c.json({ status: "failed", message: allowed.reason }, 403);
+  }
   const body = (await c.req.json<{ tradeDate?: string }>().catch(() => ({
     tradeDate: undefined,
   }))) as { tradeDate?: string };
@@ -459,8 +481,11 @@ app.post("/api/admin/bootstrap", async (c) => {
       ).bind(id, 1_000_000_00, nowIso()),
     ]);
   }
-  const result = await runEodPipeline(c.env, "2024-08-15");
-  return c.json({ ok: true, eod: result, note: "仅本地/开发引导" });
+  const eodRuns = [];
+  for (const d of ["2024-08-05", "2024-08-15", "2024-08-22", "2024-09-03"]) {
+    eodRuns.push(await runEodPipeline(c.env, d));
+  }
+  return c.json({ ok: true, eod: eodRuns, note: "仅本地/开发引导" });
 });
 
 export default app;

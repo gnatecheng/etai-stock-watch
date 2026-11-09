@@ -30,15 +30,14 @@ export async function runEodPipeline(env: Env, tradeDate?: string): Promise<EodR
   }
 
   const { session, source } = await getSessionType(env.DB, date);
-  if (session === "closed") {
-    await recordJob(env.DB, idempotencyKey, date, "skipped", { reason: "休市" });
-    return { status: "skipped", tradeDate: date, message: "休市日跳过" };
-  }
-
   const calCheck = assertCalendarCoverage(date, source);
   if (!calCheck.ok) {
     await recordJob(env.DB, idempotencyKey, date, "failed", { reason: calCheck.reason });
     return { status: "failed", tradeDate: date, message: calCheck.reason! };
+  }
+  if (session === "closed") {
+    await recordJob(env.DB, idempotencyKey, date, "skipped", { reason: "休市" });
+    return { status: "skipped", tradeDate: date, message: "休市日跳过" };
   }
 
   const ready = providerReady(env);

@@ -8,7 +8,6 @@ export interface CalendarDay {
   note?: string;
 }
 
-/** 内置最小示例日历；生产须通过管理端或迁移补全港交所日历 */
 const BUILTIN: CalendarDay[] = [
   { trade_date: "2024-01-01", session_type: "closed", note: "元旦" },
   { trade_date: "2024-02-09", session_type: "half", note: "农历除夕半日市" },
@@ -16,8 +15,9 @@ const BUILTIN: CalendarDay[] = [
   { trade_date: "2024-12-26", session_type: "closed", note: "圣诞节翌日" },
 ];
 
-export function weekdaySession(dateStr: string): SessionType {
-  const d = new Date(dateStr + "T00:00:00Z");
+/** 仅用于开发种子写入，不作为运行时交易日推断 */
+export function weekdaySessionForSeed(dateStr: string): SessionType {
+  const d = new Date(dateStr + "T12:00:00+08:00");
   const dow = d.getUTCDay();
   if (dow === 0 || dow === 6) return "closed";
   return "full";
@@ -26,14 +26,13 @@ export function weekdaySession(dateStr: string): SessionType {
 export async function getSessionType(
   db: D1Database,
   tradeDate: string,
-): Promise<{ session: SessionType; source: "db" | "weekday" | "unknown" }> {
+): Promise<{ session: SessionType; source: "db" | "missing" }> {
   const row = await db
     .prepare("SELECT session_type FROM calendar_hk WHERE trade_date = ?")
     .bind(tradeDate)
     .first<{ session_type: SessionType }>();
   if (row) return { session: row.session_type, source: "db" };
-  const session = weekdaySession(tradeDate);
-  return { session, source: "weekday" };
+  return { session: "closed", source: "missing" };
 }
 
 export async function seedBuiltinCalendar(db: D1Database): Promise<void> {
@@ -47,7 +46,6 @@ export async function seedBuiltinCalendar(db: D1Database): Promise<void> {
   }
 }
 
-/** 为演示区间写入显式日历（避免 weekday 推断 fail-closed） */
 export async function seedCalendarRange(
   db: D1Database,
   from: string,
@@ -59,7 +57,7 @@ export async function seedCalendarRange(
   while (d <= end) {
     const dateStr = d.toISOString().slice(0, 10);
     const override = BUILTIN.find((x) => x.trade_date === dateStr);
-    const session = override?.session_type ?? weekdaySession(dateStr);
+    const session = override?.session_type ?? weekdaySessionForSeed(dateStr);
     stmts.push(
       db
         .prepare(
@@ -74,13 +72,19 @@ export async function seedCalendarRange(
 
 export function assertCalendarCoverage(
   tradeDate: string,
-  source: "db" | "weekday" | "unknown",
+  source: "db" | "missing",
 ): { ok: boolean; reason?: string } {
-  if (source === "weekday") {
+  if (source === "missing") {
     return {
       ok: false,
       reason: `交易日 ${tradeDate} 未在 calendar_hk 中显式配置，已 fail-closed`,
     };
   }
   return { ok: true };
+}
+
+export async function isTradableSession(db: D1Database, tradeDate: string): Promise<boolean> {
+  const { session, source } = await getSessionType(db, tradeDate);
+  if (source !== "db") return false;
+  return session === "full" || session === "half";
 }

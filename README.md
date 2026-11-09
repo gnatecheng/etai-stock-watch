@@ -9,10 +9,10 @@
 
 | 类别 | 说明 |
 | --- | --- |
-| 已实现并本地验证 | `npm run typecheck` / `build` / `test`（9/9）；`wrangler dev` + bootstrap + 跨用户自选隔离抽检 |
+| 已实现并本地验证 | `typecheck` / `build` / `test`（19/19）/ `test:integration` / 登录后截图 |
 | 未做 | 云端部署、正式行情授权、子域名绑定、生产 Cron 启用 |
 
-最近本地检查（代理执行）：`npm test` 9/9；`POST /api/admin/bootstrap` → EOD completed；筛选 3 只演示标的；用户 B 自选对管理员不可见。
+最近本地检查：`npm test` 19/19；`npm run test:integration` HTTP 闭环通过；日历未配置 fail-closed；生产 demo 硬闸见 `src/env.ts`。验收见 [docs/acceptance-report.md](./docs/acceptance-report.md)。
 
 详见 [docs/implementation-plan.md](./docs/implementation-plan.md)（已定 vs 待定）。
 
@@ -46,7 +46,9 @@ curl -X POST http://localhost:8787/api/admin/bootstrap
 | --- | --- |
 | `npm run typecheck` | Worker + Client TS 检查 |
 | `npm run build` | 构建静态资源与 Worker |
-| `npm test` | 单元测试 |
+| `npm test` | 单元 + SQLite 模拟 D1（19 项） |
+| `npm run test:integration` | HTTP 回归（需可启动 `wrangler dev`） |
+| `npm run screenshots` | 登录后 UI 截图 → `/opt/cursor/artifacts/` |
 | `npm run db:migrate:local` | 本地 D1 迁移 |
 | `npm run db:migrate:remote` | 远程 D1 迁移（需真实 `database_id`） |
 

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { assertCalendarCoverage, weekdaySession } from "../src/calendar/hk";
+import { assertCalendarCoverage, weekdaySessionForSeed } from "../src/calendar/hk";
 
 describe("HK calendar fail-closed", () => {
-  it("rejects weekday inference for production coverage", () => {
-    const r = assertCalendarCoverage("2024-07-15", "weekday");
+  it("rejects missing explicit calendar", () => {
+    const r = assertCalendarCoverage("2024-07-15", "missing");
     expect(r.ok).toBe(false);
   });
 
@@ -12,7 +12,7 @@ describe("HK calendar fail-closed", () => {
     expect(r.ok).toBe(true);
   });
 
-  it("marks weekends closed", () => {
-    expect(weekdaySession("2024-07-13")).toBe("closed");
+  it("seed helper marks weekends closed (seed only)", () => {
+    expect(weekdaySessionForSeed("2024-07-13")).toBe("closed");
   });
 });

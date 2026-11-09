@@ -1,13 +1,14 @@
 import type { Env } from "../env";
-import { isProduction } from "../env";
+import { isProduction, normalizeProvider } from "../env";
 import type { MarketDataProvider } from "./types";
 import { DemoMarketDataProvider } from "./demo";
 
 export function getProvider(env: Env): MarketDataProvider | null {
-  if (env.DATA_PROVIDER === "demo") {
+  const provider = normalizeProvider(env);
+  if (provider === "demo") {
     return new DemoMarketDataProvider();
   }
-  if (env.DATA_PROVIDER === "none" || !env.DATA_PROVIDER) {
+  if (provider === "none" || provider === "") {
     return null;
   }
   if (isProduction(env) && !env.MARKET_DATA_API_KEY) {

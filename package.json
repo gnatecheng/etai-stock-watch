@@ -11,6 +11,8 @@
     "dev": "wrangler dev",
     "typecheck": "tsc -p tsconfig.worker.json --noEmit && tsc -p tsconfig.client.json --noEmit",
     "test": "vitest run",
+    "test:integration": "npm run build:worker && node scripts/integration-regression.mjs",
+    "screenshots": "node scripts/capture-ui.mjs",
     "test:watch": "vitest",
     "db:migrate:local": "wrangler d1 migrations apply etai-stock-watch-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply etai-stock-watch-db --remote",
@@ -20,8 +22,12 @@
     "hono": "^4.6.12"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.5.41",
     "@cloudflare/workers-types": "^4.20241106.0",
+    "playwright-core": "^1.49.0",
+    "@types/better-sqlite3": "^7.6.11",
     "@types/node": "^22.9.0",
+    "better-sqlite3": "^11.6.0",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
     "vite": "^5.4.11",

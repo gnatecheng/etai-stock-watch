@@ -1,7 +1,9 @@
 import { newId } from "../lib/id";
-import { nowIso, addDays } from "../lib/time";
+import { nowIso } from "../lib/time";
 import { roundLots, mulPriceQty } from "../lib/money";
 import { computeTradeFees, notional, type FeeScheduleRow } from "./fees";
+import { findNextValidFillBar } from "./fill";
+import { assertCalendarCoverage, getSessionType } from "../calendar/hk";
 
 export interface PaperConfirmInput {
   userId: string;
@@ -20,37 +22,44 @@ export interface BarRow {
   volume: number;
 }
 
-/**
- * 下一可交易 session 开盘价成交 — 禁止用信号当日收盘价回填。
- */
-export function findFillBar(
-  bars: BarRow[],
-  afterDate: string,
-): BarRow | null {
-  const sorted = [...bars].sort((a, b) => a.trade_date.localeCompare(b.trade_date));
-  return sorted.find((b) => b.trade_date > afterDate && b.volume > 0) ?? null;
-}
-
 export async function confirmPaperOrder(
   db: D1Database,
   input: PaperConfirmInput,
   bars: BarRow[],
   fees: FeeScheduleRow[],
-): Promise<{ ok: true; orderId: string } | { ok: false; code: string; message: string }> {
+): Promise<
+  | { ok: true; orderId: string; status: "filled" | "pending" }
+  | { ok: false; code: string; message: string }
+> {
   const lotsQty = roundLots(input.quantity, input.boardLot);
   if (lotsQty <= 0) {
     return { ok: false, code: "INVALID_LOT", message: "数量须为整手" };
   }
 
-  const existing = await db
-    .prepare("SELECT id FROM paper_orders WHERE user_id = ? AND idempotency_key = ?")
-    .bind(input.userId, input.idempotencyKey)
-    .first();
-  if (existing) {
-    return { ok: true, orderId: existing.id as string };
+  const signalCal = await getSessionType(db, input.signalTradeDate);
+  const calOk = assertCalendarCoverage(input.signalTradeDate, signalCal.source);
+  if (!calOk.ok) {
+    return { ok: false, code: "CALENDAR", message: calOk.reason ?? "日历未配置" };
+  }
+  if (signalCal.session === "closed") {
+    return { ok: false, code: "CLOSED_DAY", message: "信号日非交易 session" };
   }
 
-  const fillBar = findFillBar(bars, input.signalTradeDate);
+  const existing = await db
+    .prepare(
+      "SELECT id, status FROM paper_orders WHERE user_id = ? AND idempotency_key = ?",
+    )
+    .bind(input.userId, input.idempotencyKey)
+    .first<{ id: string; status: string }>();
+  if (existing) {
+    return {
+      ok: true,
+      orderId: existing.id,
+      status: existing.status === "filled" ? "filled" : "pending",
+    };
+  }
+
+  const fillBar = await findNextValidFillBar(db, bars, input.signalTradeDate);
   if (!fillBar) {
     const orderId = newId("pord");
     await db
@@ -66,10 +75,14 @@ export async function confirmPaperOrder(
         lotsQty,
         input.idempotencyKey,
         nowIso(),
-        JSON.stringify({ reason: "awaiting_next_session" }),
+        JSON.stringify({ reason: "awaiting_next_session", signalDate: input.signalTradeDate }),
       )
       .run();
-    return { ok: true, orderId };
+    return { ok: true, orderId, status: "pending" };
+  }
+
+  if (fillBar.trade_date <= input.signalTradeDate) {
+    return { ok: false, code: "LOOKAHEAD", message: "禁止在信号当日或之前回填成交" };
   }
 
   const fillPrice = fillBar.open_cents;
@@ -105,7 +118,10 @@ export async function confirmPaperOrder(
   const orderId = newId("pord");
   const tradeId = newId("ptrd");
 
-  const stmts = [
+  const buyCost = gross + feesCents;
+  const sellProceeds = gross - feesCents;
+
+  const stmts: D1PreparedStatement[] = [
     db
       .prepare(
         `INSERT INTO paper_orders (id, user_id, instrument_id, side, quantity, status, idempotency_key, requested_at, fill_trade_date, fill_price_cents, fees_cents, meta_json)
@@ -127,11 +143,12 @@ export async function confirmPaperOrder(
   ];
 
   if (input.side === "buy") {
-    const cost = gross + feesCents;
     stmts.push(
       db
-        .prepare("UPDATE paper_accounts SET cash_cents = cash_cents - ?, updated_at = ? WHERE user_id = ?")
-        .bind(cost, nowIso(), input.userId),
+        .prepare(
+          "UPDATE paper_accounts SET cash_cents = cash_cents - ?, updated_at = ? WHERE user_id = ? AND cash_cents >= ?",
+        )
+        .bind(buyCost, nowIso(), input.userId, buyCost),
     );
     const newQty = (pos?.quantity ?? 0) + lotsQty;
     const prevAvg = await db
@@ -162,11 +179,10 @@ export async function confirmPaperOrder(
         ),
     );
   } else {
-    const proceeds = gross - feesCents;
     stmts.push(
       db
         .prepare("UPDATE paper_accounts SET cash_cents = cash_cents + ?, updated_at = ? WHERE user_id = ?")
-        .bind(proceeds, nowIso(), input.userId),
+        .bind(sellProceeds, nowIso(), input.userId),
     );
     const newQty = (pos?.quantity ?? 0) - lotsQty;
     if (newQty <= 0) {
@@ -206,10 +222,13 @@ export async function confirmPaperOrder(
       ),
   );
 
-  await db.batch(stmts);
-  return { ok: true, orderId };
-}
+  const results = await db.batch(stmts);
+  if (input.side === "buy") {
+    const cashUpdate = results[1];
+    if (!cashUpdate.success || (cashUpdate.meta?.changes ?? 0) === 0) {
+      return { ok: false, code: "INSUFFICIENT_FUNDS", message: "模拟资金不足或并发冲突" };
+    }
+  }
 
-export function nextSessionAfterSignal(signalDate: string): string {
-  return addDays(signalDate, 1);
+  return { ok: true, orderId, status: "filled" };
 }
