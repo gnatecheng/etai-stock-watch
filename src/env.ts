@@ -14,6 +14,8 @@ export interface Env {
   MARKET_DATA_API_KEY?: string;
   /** 采集机专用；与用户/admin 会话分离。未配置时导入 API fail-closed */
   IMPORT_MACHINE_API_KEY?: string;
+  /** 生产对外分发许可；未 true 时财务/行情对外分发现有 fail-closed */
+  DATA_DISTRIBUTION_LICENSED?: string;
 }
 
 const DEV_DEFAULT_EMAIL = "admin@local.dev";
@@ -29,6 +31,10 @@ export function isProduction(env: Env): boolean {
 
 export function isDemoProvider(env: Env): boolean {
   return normalizeProvider(env) === "demo";
+}
+
+export function isDistributionLicensed(env: Env): boolean {
+  return env.DATA_DISTRIBUTION_LICENSED === "true";
 }
 
 export function isCronEnabled(env: Env): boolean {
@@ -77,4 +83,15 @@ export function isDevDefaultCredential(email: string, password: string): boolean
 
 export function rejectDevCredentialsInProd(env: Env, email: string, password: string): boolean {
   return isProduction(env) && isDevDefaultCredential(email, password);
+}
+
+/** 本地/开发：允许对已发布合成财务版本做筛选验收；生产须 DATA_DISTRIBUTION_LICENSED */
+export function financialScreeningAllowed(env: Env): { allowed: boolean; reason?: string } {
+  if (isProduction(env) && !isDistributionLicensed(env)) {
+    return {
+      allowed: false,
+      reason: "生产环境未确认对外数据分发许可（DATA_DISTRIBUTION_LICENSED≠true）",
+    };
+  }
+  return { allowed: true };
 }

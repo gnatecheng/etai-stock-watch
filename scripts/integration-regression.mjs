@@ -29,6 +29,13 @@ function assert(cond, msg) {
 }
 
 async function run() {
+  try {
+    const { execSync } = await import("node:child_process");
+    execSync("pkill -f 'wrangler dev --port 8787' 2>/dev/null || true", { shell: true });
+    await sleep(800);
+  } catch {
+    /* */
+  }
   dev = spawn("npx", ["wrangler", "dev", "--port", "8787"], {
     cwd: process.cwd(),
     stdio: ["ignore", "pipe", "pipe"],

@@ -1,65 +1,78 @@
 # 观股记 MVP 验收报告（逐项证据）
 
-> **待产品复验 · 未合并 · 未部署** · 分支 `cursor/etai-stock-watch-mvp-7d54` · [PR #1](https://github.com/gnatecheng/etai-stock-watch/pull/1)
+> **待产品复验 · 未合并 · Agent 未远程部署** · 分支 `cursor/etai-stock-watch-mvp-7d54` · [PR #1](https://github.com/gnatecheng/etai-stock-watch/pull/1)
 
-## 1. 执行命令
+## 1. 自动化命令（本地）
 
 ```bash
-npm run typecheck
-npm run build
-npm test                    # 38 passed
+npm run typecheck          # 通过
+npm test                   # 51 passed（含 fin-screener.sqlite.test.ts）
+npm run test:import-machine    # 11/11 → import-machine-http-report.json
+npm run test:financial-screen  # financial-screener-http-report.json
+npm run test:capacity        # capacity-500x3y-report.json（910 情景交易日，非官方历）
 npm run test:integration
 npm run test:production-gates
 npm run acceptance
+npm run package:staging      # staging zip + sha256
 ```
 
-场景矩阵：[acceptance-matrix.md](./acceptance-matrix.md)
+矩阵：[acceptance-matrix.md](./acceptance-matrix.md)
 
-## 2. EOD 推进已确认单（非 API 二次 confirm）
+## 2. 导入机 HTTP（替换原 404-only 日志）
+
+- 报告：`/opt/cursor/artifacts/import-machine-http-report.json`
+- 日志：`/opt/cursor/artifacts/import-machine-http.log`（**不含** Bearer 密钥）
+- 覆盖：无凭据/错凭据/仅 Cookie 401、失败 validate 不 publish、stage 重放、成功 validate+publish、重复 publish 幂等
+
+## 3. 容量实测（500 标的 × 910 情景交易日）
+
+- 报告：`/opt/cursor/artifacts/capacity-500x3y-report.json`
+- JSONL：`/opt/cursor/artifacts/capacity-synthetic-bars.jsonl`（`jsonlBytesActual` **62844600**）
+- SQLite：`/opt/cursor/artifacts/capacity-500x3y.sqlite`（**455000** bars、**500** instruments、`page_count` 见报告）
+- **声明**：910 为脚本工作日计数（2021-01-04..2024-06-28），**非**港交所官方三年交易日
+
+## 4. 财务筛选（本地合成 + 生产 fail-closed）
+
+- 已映射且可筛（有 `announced_at`）：`operating_revenue`、`net_profit_attr_parent`、`basic_eps`、`roe`、`gross_margin`
+- **未映射**（capabilities `notMapped`）：`pe_ttm`、`pb`、`market_cap` — 不伪造公告日/PE/TTM
+- 本地 HTTP：`/opt/cursor/artifacts/financial-screener-http-report.json`（导入 financial 批次后 `supported: true`）
+- 生产 staging 壳：`DATA_DISTRIBUTION_LICENSED=false` → HTTP `supported: false`（不阻塞壳部署）
+
+## 5. UI 截图与买卖 EOD
 
 来源：`/opt/cursor/artifacts/acceptance-walkthrough.log`
 
-```
-paper confirm idempotent: … "status":"pending"
-import buy fill session: 200
-EOD buy fill day: … "pending":{"scanned":1,"filled":1,…}
-paper confirm after EOD (no fill via API): … "status":"filled"
-…
-EOD sell fill: … "pending":{"filled":1}
-after sell EOD: … pos=[] trades=2
-```
+- 筛选：`screen-01` … `screen-05`（路径见 matrix）
+- 买卖链：`accept-01` … `accept-09`（pending → EOD fill → sell）
 
-证明：买入 **信号 2024-08-28** → **EOD 2024-08-29 填单**；卖出 **信号 2024-09-06** → **EOD 2024-09-09 填单**；`POST /api/paper/confirm` 重复调用不触发成交。
-
-## 3. 条件筛选（用户 AND · 非固定列表）
-
-- API：`GET /api/screener/capabilities`，`POST /api/screener/run`（见 [api-screener.md](./api-screener.md)）
-- DEMO 下成交额条件 **400**，不静默忽略
-- 截图：`/opt/cursor/artifacts/screen-01-screener-form.png` … `screen-03-screener-watchlist-add.png`
-
-## 4. 生产门禁 HTTP
+## 6. 生产门禁
 
 来源：`/opt/cursor/artifacts/production-gates-http.log`
 
-- `POST /api/admin/bootstrap` → **403**
-- `POST /api/admin/bootstrap-acceptance` → **403**
+- bootstrap / bootstrap-acceptance → **403**
 - 开发默认凭据登录 → **403**
-- `APP_ENV=production` + `DATA_PROVIDER=demo`：`/api/paper/confirm` → **403**；`/api/admin/eod/run` → **403**
+- 生产 + demo：`paper/confirm`、`admin/eod/run` → **403**
 
-配置：`wrangler.production-test.toml` + `wrangler dev --persist-to .wrangler/prod-gate-test`
+## 7. Staging 安全部署包（父端上传）
 
-## 5. 截图
+说明：[deploy-staging-package.md](./deploy-staging-package.md)
 
-| 文件 | 场景 |
+| 产物 | 路径 |
 |------|------|
-| `accept-01` … `accept-07` | 自选、buy 信号、pending、filled、提醒 |
-| `accept-08-signals-sell-confirm.png` | 合成行情 sell + UI 确认 |
-| `accept-09-paper-after-sell.png` | 卖出 EOD 后空仓 |
+| 展开目录 | `/opt/cursor/artifacts/staging-deploy-bundle/` |
+| ZIP | `/opt/cursor/artifacts/etai-stock-watch-staging-<commit>.zip` |
+| SHA256 | `/opt/cursor/artifacts/staging-deploy-sha256.txt` |
+| 元数据 | `/opt/cursor/artifacts/staging-deploy-report.json` |
 
-路径：`/opt/cursor/artifacts/accept-*.png`
+迁移顺序：`0001_initial.sql` → `0002_import_financial.sql`
 
-## 6. 未覆盖 / 限制
+## 8. workflow_dispatch（未跑远程 Actions）
 
-- 未对接正式行情供应商；生产 EOD/纸交易对 demo 保持 **HTTP 403**（非“冒充授权完成”）。
-- 并发仅在 SQLite 模拟 D1 + 单进程 `wrangler dev` 下验证；**未**在远程多副本 D1 压测。
-- 本轮不合并、不部署、不修改 etai 主站资源。
+`/opt/cursor/artifacts/workflow-dispatch-evidence.json` — `collector-ci.yml` 仅 `workflow_dispatch`，默认无 `schedule`
+
+## 9. 未覆盖
+
+- 远程 D1 多副本并发
+- 正式行情供应商与 `DATA_DISTRIBUTION_LICENSED=true`
+- 远程 Cron / AKShare 实采
+- 修改 etai 主站既有 Worker/D1

@@ -29,6 +29,12 @@ import type { ScreenerRunRequest } from "../screener/types";
 import { seedBuiltinCalendar, seedCalendarRange } from "../calendar/hk";
 import { importV1 } from "./import-v1";
 import { financialScreenerCapabilities } from "../screener/financial";
+import {
+  runFinancialScreener,
+  validateFinScreenerRequest,
+  type FinScreenerRequest,
+} from "../screener/financial-run";
+import { financialScreeningAllowed } from "../env";
 
 const app = new Hono<HonoEnv>();
 
@@ -565,6 +571,24 @@ app.post("/api/admin/bootstrap-acceptance", async (c) => {
 app.get("/api/screener/financial-capabilities", requireAuth, async (c) => {
   const caps = await financialScreenerCapabilities(c.env, c.env.DB);
   return c.json(caps);
+});
+
+app.post("/api/screener/financial-run", requireAuth, async (c) => {
+  const csrfErr = requireCsrf(c);
+  if (csrfErr) return csrfErr;
+  const gate = financialScreeningAllowed(c.env);
+  const body = await c.req.json<FinScreenerRequest>().catch(() => null);
+  if (!body) return c.json({ error: "JSON 无效", code: "INVALID_BODY" }, 400);
+  const validated = validateFinScreenerRequest(body, gate);
+  if (!validated.ok) {
+    return c.json({ error: validated.message, code: validated.code }, 400);
+  }
+  const caps = await financialScreenerCapabilities(c.env, c.env.DB);
+  if (!caps.supported) {
+    return c.json({ error: caps.reason ?? "财务筛选不可用", code: "FIN_NOT_SUPPORTED" }, 400);
+  }
+  const result = await runFinancialScreener(c.env, c.env.DB, validated.request);
+  return c.json(result);
 });
 
 app.route("/api/import/v1", importV1);

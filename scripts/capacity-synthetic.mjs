@@ -3,6 +3,7 @@
  * 输出 JSONL 供 import batch stage / 本地基准
  */
 import { writeFile, mkdir } from "node:fs/promises";
+import { statSync } from "node:fs";
 import { createWriteStream } from "node:fs";
 import { resolve } from "node:path";
 
@@ -41,14 +42,16 @@ async function main() {
   }
   ws.end();
   await new Promise((r) => ws.on("finish", r));
+  const jsonlBytesActual = statSync(path).size;
   const meta = {
     label: "合成容量情景 — 非真实行情",
     symbols: SYMBOLS,
-    tradingDays: days.length,
+    scenarioTradingDays: days.length,
+    scenarioNote: "工作日计数 2021-01-04..2024-06-28，非港交所官方历",
     totalRows: rows,
-    approxBytesPerRow: 120,
-    approxTotalBytes: rows * 120,
+    jsonlBytesActual,
     output: path,
+    nextStep: "node scripts/capacity-full-load.mjs",
   };
   await writeFile(resolve(OUT, "capacity-synthetic-meta.json"), JSON.stringify(meta, null, 2));
   console.log(JSON.stringify(meta));

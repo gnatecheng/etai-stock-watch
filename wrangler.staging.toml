@@ -1,0 +1,28 @@
+# 安全 staging 壳 — 父端部署用；勿指向 etai 主站既有 D1/Worker
+# 填写新 D1 database_id 后：wrangler deploy -c wrangler.staging.toml
+name = "etai-stock-watch-staging"
+main = "dist/worker/index.js"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "etai-stock-watch-staging-db"
+database_id = "REPLACE_WITH_NEW_STAGING_D1_ID"
+migrations_dir = "migrations"
+
+[assets]
+directory = "dist/client"
+binding = "ASSETS"
+
+[vars]
+APP_ENV = "production"
+DATA_PROVIDER = "none"
+EOD_CRON_ENABLED = "false"
+SESSION_COOKIE_NAME = "esw_session"
+HK_TIMEZONE = "Asia/Hong_Kong"
+# 生产无分发授权；财务筛选 HTTP 返回 supported:false（fail-closed）
+DATA_DISTRIBUTION_LICENSED = "false"
+# 勿在 vars 中配置 BOOTSTRAP_* / IMPORT_MACHINE_API_KEY / MARKET_DATA_API_KEY
+
+# 默认无 Cron；审批后再单独加 [triggers]
