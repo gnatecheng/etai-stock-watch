@@ -13,6 +13,7 @@ import { sha256Hex, randomToken } from "../lib/crypto";
 import { newId } from "../lib/id";
 import { nowIso } from "../lib/time";
 import { runEodPipeline } from "../pipeline/eod";
+import { seedAcceptanceScenario } from "../pipeline/acceptance-seed";
 import { confirmPaperOrder } from "../paper/engine";
 import { DEMO_FEE_SCHEDULES } from "../paper/fees";
 import {
@@ -344,6 +345,30 @@ app.post("/api/paper/confirm", requireAuth, async (c) => {
   });
 });
 
+app.get("/api/paper/orders", requireAuth, async (c) => {
+  const u = c.get("user")!;
+  const rows = await c.env.DB.prepare(
+    `SELECT o.id, o.instrument_id, o.side, o.quantity, o.status, o.idempotency_key,
+            o.fill_trade_date, o.fill_price_cents, o.requested_at, o.meta_json, i.symbol
+     FROM paper_orders o JOIN instruments i ON i.id = o.instrument_id
+     WHERE o.user_id = ? ORDER BY o.requested_at DESC LIMIT 30`,
+  )
+    .bind(u.id)
+    .all();
+  return c.json({
+    items: (rows.results ?? []).map((o: Record<string, unknown>) => {
+      let signalDate: string | undefined;
+      try {
+        const meta = JSON.parse(String(o.meta_json ?? "{}"));
+        signalDate = meta.signalDate;
+      } catch {
+        /* ignore */
+      }
+      return { ...o, signalDate };
+    }),
+  });
+});
+
 app.get("/api/paper/positions", requireAuth, async (c) => {
   const u = c.get("user")!;
   const acct = await c.env.DB.prepare("SELECT cash_cents, currency FROM paper_accounts WHERE user_id = ?")
@@ -486,6 +511,43 @@ app.post("/api/admin/bootstrap", async (c) => {
     eodRuns.push(await runEodPipeline(c.env, d));
   }
   return c.json({ ok: true, eod: eodRuns, note: "仅本地/开发引导" });
+});
+
+app.post("/api/admin/bootstrap-acceptance", async (c) => {
+  if (c.env.APP_ENV === "production") {
+    return c.json({ error: "生产环境禁止 bootstrap" }, 403);
+  }
+  for (const f of DEMO_FEE_SCHEDULES) {
+    await c.env.DB.prepare(
+      `INSERT OR IGNORE INTO fee_schedules (id, name, rate_bps, flat_cents, effective_from, effective_to)
+       VALUES (?, ?, ?, ?, ?, NULL)`,
+    )
+      .bind(f.id, f.name, f.rate_bps, f.flat_cents, f.effective_from)
+      .run();
+  }
+  const email = c.env.BOOTSTRAP_ADMIN_EMAIL ?? "admin@local.dev";
+  const existing = await c.env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email).first();
+  if (!existing) {
+    const id = newId("usr");
+    const hash = await hashPassword(c.env.BOOTSTRAP_ADMIN_PASSWORD ?? "dev-admin-change-me");
+    await c.env.DB.batch([
+      c.env.DB.prepare(
+        `INSERT INTO users (id, email, display_name, password_hash, role, status, created_at, updated_at)
+         VALUES (?, ?, '管理员', ?, 'admin', 'active', ?, ?)`,
+      ).bind(id, email, hash, nowIso(), nowIso()),
+      c.env.DB.prepare(
+        `INSERT INTO paper_accounts (user_id, cash_cents, currency, updated_at) VALUES (?, ?, 'HKD', ?)`,
+      ).bind(id, 1_000_000_00, nowIso()),
+    ]);
+  }
+  await c.env.DB.prepare("DELETE FROM paper_trades").run();
+  await c.env.DB.prepare("DELETE FROM paper_orders").run();
+  await c.env.DB.prepare("DELETE FROM paper_positions").run();
+  await c.env.DB.prepare("DELETE FROM notifications").run();
+  await c.env.DB.prepare("DELETE FROM signals").run();
+  await c.env.DB.prepare("DELETE FROM watchlists").run();
+  const scenario = await seedAcceptanceScenario(c.env);
+  return c.json({ ok: true, scenario, note: "合成验收场景；下一 session 需 CSV 导入后重试确认" });
 });
 
 export default app;

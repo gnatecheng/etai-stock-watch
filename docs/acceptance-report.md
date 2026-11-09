@@ -1,47 +1,66 @@
-# 观股记 MVP 验收报告（PR #1 补强）
+# 观股记 MVP 验收报告（逐项证据）
 
-> 状态：**待验收 · 未合并 · 未部署**
+> **待验收 · 未合并 · 未部署** · 分支 `cursor/etai-stock-watch-mvp-7d54` · PR #1
 
-## 执行命令与结果（实跑）
+## 1. 执行命令与原始输出
 
-| 命令 | 结果 |
+```bash
+npm run typecheck   # 通过
+npm run build       # 通过
+npm test            # 24 passed（见下表，非“全覆盖”）
+npm run test:integration
+npm run acceptance  # 截图 accept-01..07 + acceptance-walkthrough.log
+```
+
+`npm test` 末行示例：`Tests  24 passed (24)` — 仅覆盖下表所列场景。
+
+完整场景映射：[acceptance-matrix.md](./acceptance-matrix.md)
+
+## 2. 【自动化已验证】— 日志摘录
+
+来源：`/opt/cursor/artifacts/acceptance-walkthrough.log`
+
+```
+signals: count=1 buy=sig_… date=2024-08-28
+UI confirm status: … 状态 pending … 幂等键 sig_…-2024-08-28
+paper confirm #2 (same idempotency): … "status":"filled" … fill 由 UI 同键重试
+fill_trade_date":"2024-08-29" … signalDate":"2024-08-28"
+duplicate confirm: … tradeCount=1
+EOD dedupe: notifications 1 -> 1
+```
+
+证明：**信号日 2024-08-28**，成交 **2024-08-29 开盘价 279.00**，非信号当日收盘。
+
+数据来源：`POST /api/admin/bootstrap-acceptance` → 标签 `合成演示行情（ACCEPTANCE_SCENARIO）`
+
+## 3. 【人工抽检】— 本轮截图（仅 accept-*）
+
+| 文件 | 场景 |
 | --- | --- |
-| `npm run typecheck` | 通过 |
-| `npm run build` | 通过 |
-| `npm test`（Vitest） | **19/19** 通过 |
-| `npm run test:integration`（HTTP 回归） | 通过（bootstrap、401/403 边界、自选隔离、EOD→信号、模拟确认） |
-| `npm run screenshots`（Playwright，已登录） | 5+1 张 PNG |
+| `accept-01-watchlist-empty.png` | 自选空态 |
+| `accept-02-watchlist-filled.png` | 筛选页 UI 加入自选后 |
+| `accept-03-signals-buy-reasons.png` | buy 信号 + 理由 + **确认模拟买入** 按钮 |
+| `accept-04-after-confirm-pending.png` | UI 确认后 pending 文案 |
+| `accept-05-paper-pending.png` | 模拟仓 pending 订单 |
+| `accept-06-paper-filled-next-session.png` | 导入下一 session 后 filled |
+| `accept-07-notifications-inapp.png` | **站内提醒** 独立 Tab |
 
-## 【自动化已验证】
+路径：`/opt/cursor/artifacts/accept-*.png`
 
-- 日历：未写入 `calendar_hk` 的日期 **fail-closed**（不再 weekday 推断）
-- 生产：`DATA_PROVIDER=demo` / 默认开发凭据登录 / bootstrap **代码级阻断**
-- 模拟成交：信号日后下一 **可交易 session** 开盘价；无后续 bar → `pending`；禁止同日回填
-- D1/SQLite：整手、费用、条件 `cash_cents >= cost` 更新、幂等键、资金不足拒绝
-- 均线 20MA 演示策略：含非投资建议文案
-- CSRF + 未登录 401 + 非管理员 403（HTTP 回归）
+## 4. 上轮“两笔同价”说明
 
-## 【人工抽检】
+| 项 | 说明 |
+| --- | --- |
+| 原因 | 旧 `capture-ui.mjs` 用 **随机幂等键** API 下单，与 UI 的 `sigId-tradeDate` 并存 → 两笔不同合法订单 |
+| 约束 | `UNIQUE(user_id, idempotency_key)`；同键重复确认不增 `paper_trades` |
+| 本轮 | 仅 walkthrough 同键；日志 `tradeCount=1` |
 
-- 登录后移动截图（含水印）：见 `/opt/cursor/artifacts/ui-*.png`
-- 信号页可展开理由、可点「确认模拟」；模拟仓页 PAPER 标识
+## 5. 【未支持 / 安全阻断】
 
-## 【未支持 / 阻断（设计如此）】
+- 生产 `APP_ENV=production`：bootstrap / demo 供应商 / 默认凭据（`env-guards.test.ts`）
+- 无授权 vendor：`DATA_PROVIDER=none` → EOD/模拟拒绝
+- 完整港交所日历、正式部署、外发提醒
 
-- 生产无授权行情供应商 → 不产信号、不允许模拟成交
-- 未配置显式港交所完整日历 → EOD/模拟 fail-closed
-- 正式 vendor 接入、Cron 启用、子域名、部署
+## 6. 【仍需产品决定】
 
-## 【仍需产品或用户决定】
-
-- 港股行情供应商与邀请制分发授权
-- Workers Free/Paid、`stocks.etais.dev` 是否启用
-- 真实费率表与完整交易日历导入来源
-
-## 缺陷修复摘要（本轮）
-
-1. 日历运行时取消 weekday 猜测；成交路径联动 `calendar_hk`
-2. `paperTradingAllowed` / 生产 demo 硬闸
-3. 模拟单 `pending` 与条件资金更新（批处理）
-4. UI：信号→确认模拟单；19 单元测试 + SQLite D1 + HTTP 回归
-5. 登录后业务截图（Playwright）
+行情授权、Workers 套餐、子域名。

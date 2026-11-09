@@ -66,8 +66,8 @@ export async function runEodPipeline(env: Env, tradeDate?: string): Promise<EodR
 
   const strategyId = await ensureStrategy(env.DB);
   const instruments = await env.DB.prepare(
-    "SELECT id, status FROM instruments WHERE status = 'active'",
-  ).all<{ id: string; status: string }>();
+    "SELECT id, status, symbol FROM instruments WHERE status = 'active'",
+  ).all<{ id: string; status: string; symbol: string }>();
 
   let signalsCreated = 0;
   for (const inst of instruments.results ?? []) {
@@ -140,7 +140,7 @@ export async function runEodPipeline(env: Env, tradeDate?: string): Promise<EodR
             newId("ntf"),
             u.id,
             dedupe,
-            `信号 · ${sig.direction.toUpperCase()}`,
+            `${inst.symbol} · 信号 ${sig.direction} · ${date}`,
             sig.reasons.join("；"),
             nowIso(),
           )

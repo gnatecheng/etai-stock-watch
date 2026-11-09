@@ -159,3 +159,30 @@ input {
   color: var(--ok);
   font-weight: 700;
 }
+
+.toast {
+  position: fixed;
+  top: 3.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #14532d;
+  color: #ecfdf5;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  z-index: 100;
+  font-size: 0.85rem;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 1.5rem 0.5rem;
+  color: var(--muted);
+}
+
+.status-pending {
+  color: #fbbf24;
+}
+
+.status-filled {
+  color: var(--ok);
+}

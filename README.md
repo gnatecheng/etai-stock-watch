@@ -9,10 +9,10 @@
 
 | 类别 | 说明 |
 | --- | --- |
-| 已实现并本地验证 | `typecheck` / `build` / `test`（19/19）/ `test:integration` / 登录后截图 |
+| 已实现并本地验证 | `test` 24/24、`test:integration`、`npm run acceptance`（合成场景 UI 闭环截图） |
 | 未做 | 云端部署、正式行情授权、子域名绑定、生产 Cron 启用 |
 
-最近本地检查：`npm test` 19/19；`npm run test:integration` HTTP 闭环通过；日历未配置 fail-closed；生产 demo 硬闸见 `src/env.ts`。验收见 [docs/acceptance-report.md](./docs/acceptance-report.md)。
+最近本地检查：`npm test` 24/24；`npm run acceptance` 通过（buy 确认→pending→导入 2024-08-29→filled）。逐项映射见 [docs/acceptance-matrix.md](./docs/acceptance-matrix.md)、[docs/acceptance-report.md](./docs/acceptance-report.md)。
 
 详见 [docs/implementation-plan.md](./docs/implementation-plan.md)（已定 vs 待定）。
 
@@ -46,7 +46,8 @@ curl -X POST http://localhost:8787/api/admin/bootstrap
 | --- | --- |
 | `npm run typecheck` | Worker + Client TS 检查 |
 | `npm run build` | 构建静态资源与 Worker |
-| `npm test` | 单元 + SQLite 模拟 D1（19 项） |
+| `npm test` | 单元 + SQLite 模拟 D1（24 项，见 acceptance-matrix） |
+| `npm run acceptance` | 合成验收场景 UI _walkthrough + accept-*.png |
 | `npm run test:integration` | HTTP 回归（需可启动 `wrangler dev`） |
 | `npm run screenshots` | 登录后 UI 截图 → `/opt/cursor/artifacts/` |
 | `npm run db:migrate:local` | 本地 D1 迁移 |
