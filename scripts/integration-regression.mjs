@@ -36,7 +36,7 @@ async function run() {
   await waitReady();
   const results = [];
 
-  const boot = await json("/api/admin/bootstrap", { method: "POST" });
+  const boot = await json("/api/admin/bootstrap-acceptance", { method: "POST" });
   assert(boot.res.ok, "bootstrap");
   results.push("bootstrap");
 
