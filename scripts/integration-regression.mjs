@@ -37,8 +37,12 @@ async function run() {
   const results = [];
 
   const boot = await json("/api/admin/bootstrap-acceptance", { method: "POST" });
-  assert(boot.res.ok, "bootstrap");
-  results.push("bootstrap");
+  assert(boot.res.ok, "bootstrap-acceptance");
+  assert(
+    (boot.data.scenario?.eod?.signalsCreated ?? 0) >= 1,
+    `acceptance buy signal (${JSON.stringify(boot.data.scenario?.eod)})`,
+  );
+  results.push("bootstrap-acceptance");
 
   const unauth = await json("/api/screener");
   assert(unauth.res.status === 401, "screener 401");
@@ -96,20 +100,8 @@ async function run() {
   const jobs = await json("/api/jobs/latest", { headers: { Cookie: userCookie } });
   assert(jobs.res.status === 403, "non-admin jobs");
 
-  for (const d of ["2024-08-06", "2024-08-12", "2024-08-19", "2024-08-26", "2024-09-02"]) {
-    await json("/api/admin/eod/run", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Cookie: cookie,
-        "X-CSRF-Token": csrf,
-        Origin: "http://127.0.0.1:8787",
-      },
-      body: JSON.stringify({ tradeDate: d }),
-    });
-  }
   const sig = await json("/api/signals", { headers: { Cookie: cookie } });
-  assert((sig.data.items ?? []).length > 0, `signals after eod (${(sig.data.items ?? []).length})`);
+  assert((sig.data.items ?? []).length > 0, `signals (${(sig.data.items ?? []).length})`);
 
   const sigRow = sig.data.items.find((s) => s.direction === "buy") ?? sig.data.items[0];
   const paper = await json("/api/paper/confirm", {
