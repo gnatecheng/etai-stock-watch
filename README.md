@@ -12,7 +12,7 @@
 | 已实现并本地验证 | `test` 38/38、`test:integration`、`npm run acceptance`（条件筛选 + 模拟买卖 EOD） |
 | 未做 | 云端部署、正式行情授权、子域名绑定、生产 Cron 启用 |
 
-最近本地检查：`npm test` **38/38**；**筛选 Tab** 为用户自定义条件（AND、主动执行，非固定列表）；**信号 Tab** 仍为 20MA 策略输出。模拟单：**用户确认 → pending → EOD 填单**。详见 [docs/acceptance-matrix.md](./docs/acceptance-matrix.md)、[docs/api-screener.md](./docs/api-screener.md)。
+最近本地检查：`npm test` **46/46**；**AKShare 架构**：独立 Python 采集器（`collector/`）→ `POST /api/import/v1/*`（机器凭据，非 admin）；**筛选** 为用户 AND 条件；**模拟单** EOD 推进不变。详见 [docs/akshare-architecture.md](./docs/akshare-architecture.md)、[docs/deploy-prep.md](./docs/deploy-prep.md)、[docs/acceptance-matrix.md](./docs/acceptance-matrix.md)。
 
 详见 [docs/implementation-plan.md](./docs/implementation-plan.md)（已定 vs 待定）。
 
@@ -46,7 +46,9 @@ curl -X POST http://localhost:8787/api/admin/bootstrap
 | --- | --- |
 | `npm run typecheck` | Worker + Client TS 检查 |
 | `npm run build` | 构建静态资源与 Worker |
-| `npm test` | 单元 + SQLite 模拟 D1（38 项，见 acceptance-matrix） |
+| `npm test` | 单元 + SQLite 模拟 D1（46 项，见 acceptance-matrix） |
+| `npm run test:collector` | Python 采集器合成测试 |
+| `npm run test:capacity` | 500×3y 合成容量 meta + 基准样本 |
 | `npm run acceptance` | 合成验收场景 UI _walkthrough + accept-*.png |
 | `npm run test:integration` | HTTP 回归（需可启动 `wrangler dev`） |
 | `npm run screenshots` | 登录后 UI 截图 → `/opt/cursor/artifacts/` |

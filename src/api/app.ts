@@ -27,6 +27,8 @@ import { screenerCapabilities, runScreener } from "../screener/engine";
 import { validateScreenerRequest } from "../screener/validate";
 import type { ScreenerRunRequest } from "../screener/types";
 import { seedBuiltinCalendar, seedCalendarRange } from "../calendar/hk";
+import { importV1 } from "./import-v1";
+import { financialScreenerCapabilities } from "../screener/financial";
 
 const app = new Hono<HonoEnv>();
 
@@ -559,5 +561,12 @@ app.post("/api/admin/bootstrap-acceptance", async (c) => {
   const scenario = await seedAcceptanceScenario(c.env);
   return c.json({ ok: true, scenario, note: "合成验收场景；下一 session 需 CSV 导入后重试确认" });
 });
+
+app.get("/api/screener/financial-capabilities", requireAuth, async (c) => {
+  const caps = await financialScreenerCapabilities(c.env, c.env.DB);
+  return c.json(caps);
+});
+
+app.route("/api/import/v1", importV1);
 
 export default app;

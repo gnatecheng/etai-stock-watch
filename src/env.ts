@@ -12,6 +12,8 @@ export interface Env {
   BOOTSTRAP_ADMIN_EMAIL?: string;
   BOOTSTRAP_ADMIN_PASSWORD?: string;
   MARKET_DATA_API_KEY?: string;
+  /** 采集机专用；与用户/admin 会话分离。未配置时导入 API fail-closed */
+  IMPORT_MACHINE_API_KEY?: string;
 }
 
 const DEV_DEFAULT_EMAIL = "admin@local.dev";

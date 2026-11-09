@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 
 type BoundStmt = {
@@ -49,7 +49,12 @@ export function createTestD1(db: Database.Database): D1Database {
 
 export function freshMigratedDb(): { db: Database.Database; d1: D1Database } {
   const db = new Database(":memory:");
-  const sql = readFileSync(resolve("migrations/0001_initial.sql"), "utf8");
-  db.exec(sql);
+  const dir = resolve("migrations");
+  const files = readdirSync(dir)
+    .filter((f) => f.endsWith(".sql"))
+    .sort();
+  for (const f of files) {
+    db.exec(readFileSync(resolve(dir, f), "utf8"));
+  }
   return { db, d1: createTestD1(db) };
 }

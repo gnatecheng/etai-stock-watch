@@ -15,6 +15,8 @@
     "screenshots": "node scripts/acceptance-walkthrough.mjs",
     "acceptance": "npm run build:worker && (pkill -f 'wrangler dev --port 8787' 2>/dev/null || true); sleep 1; node scripts/acceptance-walkthrough.mjs",
     "test:production-gates": "npm run build:worker && pkill -f 'wrangler dev.*8788' 2>/dev/null; sleep 1; node scripts/production-gates-http.mjs",
+    "test:capacity": "node scripts/capacity-synthetic.mjs && CAP_BENCH_SYMBOLS=50 CAP_BENCH_DAYS=60 node scripts/capacity-benchmark.mjs",
+    "test:collector": "cd collector && python3 -m pytest tests -q",
     "test:watch": "vitest",
     "db:migrate:local": "wrangler d1 migrations apply etai-stock-watch-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply etai-stock-watch-db --remote",

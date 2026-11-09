@@ -111,6 +111,21 @@ async function main() {
   await log(`screener after tighten (min 400): hits=${hitCount2}`);
   if (hitCount2 > 0) throw new Error("Expected empty after price tighten");
 
+  await page.locator('[data-f="changeEnabled"]').check();
+  await page.locator('[data-f="changeMin"]').fill("not-a-number");
+  await page.locator('[data-screener-run]').click();
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: `${OUT}/screen-04-screener-invalid-input.png`, fullPage: true });
+  await log("screener invalid input: expect toast");
+
+  await page.locator('[data-f="changeEnabled"]').click();
+  await page.locator('[data-f="changeMin"]').fill("");
+  await page.locator('[data-f="priceMin"]').fill("400");
+  await page.locator('[data-f="priceMax"]').fill("500");
+  await page.locator('[data-screener-run]').click();
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: `${OUT}/screen-05-screener-zero-hits.png`, fullPage: true });
+
   await page.locator('[data-screener-reset]').click();
   await page.waitForTimeout(400);
   await page.locator('[data-f="priceEnabled"]').check();

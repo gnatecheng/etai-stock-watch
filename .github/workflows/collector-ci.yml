@@ -1,0 +1,24 @@
+# AKShare 采集器 CI — 仅 workflow_dispatch；无仓库 Secrets；不部署
+name: collector-ci
+
+on:
+  workflow_dispatch:
+  # 默认不启用 schedule；未来定时须在运维批准后单独添加
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install collector deps
+        run: pip install -r collector/requirements.txt pytest
+        working-directory: .
+      - name: Synthetic unit tests (no network)
+        run: pytest collector/tests -q
+      - name: Note on Actions limits
+        run: |
+          echo "本 workflow 不运行 wrangler deploy / 不写入 Cloudflare Secrets"
+          echo "GitHub Actions 免费额度与队列延迟以当年 GitHub 政策为准 — 非实时 SLA"
