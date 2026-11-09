@@ -1,0 +1,31 @@
+{
+  "name": "etai-stock-watch",
+  "version": "0.1.0",
+  "private": true,
+  "description": "观股记 · 港股筛选、信号与模拟交易（邀请制）",
+  "type": "module",
+  "scripts": {
+    "build": "npm run build:client && npm run build:worker",
+    "build:client": "vite build",
+    "build:worker": "tsc -p tsconfig.worker.json",
+    "dev": "wrangler dev",
+    "typecheck": "tsc -p tsconfig.worker.json --noEmit && tsc -p tsconfig.client.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:migrate:local": "wrangler d1 migrations apply etai-stock-watch-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply etai-stock-watch-db --remote",
+    "seed:local": "tsx scripts/seed-demo.ts --local"
+  },
+  "dependencies": {
+    "hono": "^4.6.12"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241106.0",
+    "@types/node": "^22.9.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11",
+    "vitest": "^2.1.5",
+    "wrangler": "^3.91.0"
+  }
+}
