@@ -59,7 +59,8 @@ function genBars(inst: InstrumentMeta, base: number, seed: number): DailyBar[] {
         low_cents: low,
         close_cents: close,
         volume: vol,
-        turnover_cents: Math.round((close * vol) / 100),
+        /** 演示数据不提供可信成交额；筛选引擎禁止用收盘价×成交量推算 */
+        turnover_cents: undefined,
         adj_factor: 10000,
       });
       price = close / 100;

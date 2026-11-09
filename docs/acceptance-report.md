@@ -7,7 +7,7 @@
 ```bash
 npm run typecheck
 npm run build
-npm test                    # 29 passed
+npm test                    # 38 passed
 npm run test:integration
 npm run test:production-gates
 npm run acceptance
@@ -31,7 +31,13 @@ after sell EOD: … pos=[] trades=2
 
 证明：买入 **信号 2024-08-28** → **EOD 2024-08-29 填单**；卖出 **信号 2024-09-06** → **EOD 2024-09-09 填单**；`POST /api/paper/confirm` 重复调用不触发成交。
 
-## 3. 生产门禁 HTTP
+## 3. 条件筛选（用户 AND · 非固定列表）
+
+- API：`GET /api/screener/capabilities`，`POST /api/screener/run`（见 [api-screener.md](./api-screener.md)）
+- DEMO 下成交额条件 **400**，不静默忽略
+- 截图：`/opt/cursor/artifacts/screen-01-screener-form.png` … `screen-03-screener-watchlist-add.png`
+
+## 4. 生产门禁 HTTP
 
 来源：`/opt/cursor/artifacts/production-gates-http.log`
 
@@ -42,7 +48,7 @@ after sell EOD: … pos=[] trades=2
 
 配置：`wrangler.production-test.toml` + `wrangler dev --persist-to .wrangler/prod-gate-test`
 
-## 4. 截图
+## 5. 截图
 
 | 文件 | 场景 |
 |------|------|
@@ -52,7 +58,7 @@ after sell EOD: … pos=[] trades=2
 
 路径：`/opt/cursor/artifacts/accept-*.png`
 
-## 5. 未覆盖 / 限制
+## 6. 未覆盖 / 限制
 
 - 未对接正式行情供应商；生产 EOD/纸交易对 demo 保持 **HTTP 403**（非“冒充授权完成”）。
 - 并发仅在 SQLite 模拟 D1 + 单进程 `wrangler dev` 下验证；**未**在远程多副本 D1 压测。

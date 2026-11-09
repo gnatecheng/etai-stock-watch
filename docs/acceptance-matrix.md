@@ -1,6 +1,6 @@
 # 需求 → 测试 → 断言 → 结果映射
 
-> 最后一轮：`npm test` **29 passed**；`npm run test:integration`；`npm run test:production-gates`；`npm run acceptance`。  
+> 最后一轮：`npm test` **38 passed**；`npm run test:integration`；`npm run test:production-gates`；`npm run acceptance`。  
 > **通过数 ≠ 全部产品能力已上线**（见【结果】列）。
 
 | # | 场景 | 预期 | 实际 | 测试 / 断言 | 日志 / 截图 | 结果 |
@@ -16,7 +16,12 @@
 | 9 | 日历 fail-closed | 缺日历 failed | status failed | `eod-calendar.sqlite.test.ts` | — | ✅ |
 | 10 | 休市 / 半日市 | closed skip / half 存在 | 单测 | 同上 | — | ✅ |
 | 11 | 跨用户隔离 | 自选 / jobs 403 | HTTP | `integration-regression.mjs` | — | ✅ |
-| 12 | 未登录 401 | screener 401 | HTTP 401 | integration | — | ✅ |
+| 12 | 未登录 401 | screener capabilities 401 | HTTP 401 | integration | — | ✅ |
+| 12b | 条件筛选 AND | 用户 POST run | hits + reasons | `screener-engine/validate` + integration | — | ✅ |
+| 12c | 成交额不可用 | API 400 不静默丢弃 | TURNOVER_NOT_SUPPORTED | integration + walkthrough | acceptance-walkthrough.log | ✅ |
+| 12d | 缺历史/前收 | excluded 不命中 | engine tests | `screener-engine.sqlite.test.ts` | — | ✅ |
+| 12e | UI 筛选闭环 | 设置→执行→调整→自选 | Playwright | acceptance | screen-01..03 | ✅ |
+| 12f | 筛选≠信号 | 文案分离 | capabilities | UI intro | — | ✅ |
 | 13 | 生产 bootstrap | 403 | HTTP 403 | `test:production-gates` | `production-gates-http.log` | ✅ |
 | 14 | 生产 dev 凭据 | 403 | HTTP 403 | 同上 | 同上 | ✅ |
 | 15 | 生产 demo 纸交易 / EOD | 403 BLOCKED | HTTP 403 | 同上（真实 wrangler `APP_ENV=production`） | 同上 | ✅ |
@@ -46,7 +51,7 @@
 
 ```bash
 npm run typecheck
-npm test                         # 29 passed
+npm test                         # 38 passed
 npm run test:integration
 npm run test:production-gates    # 日志 → /opt/cursor/artifacts/production-gates-http.log
 npm run acceptance               # accept-*.png + acceptance-walkthrough.log
@@ -59,3 +64,8 @@ npm run acceptance               # accept-*.png + acceptance-walkthrough.log
 | `accept-01` … `accept-07` | 自选 / 信号 / pending / filled / 提醒 |
 | `accept-08-signals-sell-confirm.png` | 合成行情卖出信号 + UI 确认 |
 | `accept-09-paper-after-sell.png` | EOD 卖出后空仓 |
+| `screen-01-screener-form.png` | 条件表单（DEMO 标识） |
+| `screen-02-screener-hits.png` | 命中 + 逐条件理由 |
+| `screen-03-screener-watchlist-add.png` | 从筛选结果加自选 |
+
+API 说明：[api-screener.md](./api-screener.md)

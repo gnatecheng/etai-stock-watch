@@ -57,7 +57,7 @@ export function acceptanceBarsThroughSignal(): DailyBar[] {
     low_cents: r.open - 50,
     close_cents: r.close,
     volume: r.vol,
-    turnover_cents: Math.round((r.close * r.vol) / 100),
+    turnover_cents: undefined,
     adj_factor: 10000,
   }));
 }
@@ -82,7 +82,7 @@ function mapSequence(seq: typeof CLOSE_CENTS_SEQUENCE): DailyBar[] {
     low_cents: Math.min(r.open, r.close) - 50,
     close_cents: r.close,
     volume: r.vol,
-    turnover_cents: Math.round((r.close * r.vol) / 100),
+    turnover_cents: undefined,
     adj_factor: 10000,
   }));
 }

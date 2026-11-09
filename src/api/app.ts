@@ -23,6 +23,9 @@ import {
   demoMarketFeaturesAllowed,
 } from "../env";
 import { parseCsv, validateAndMapRows, newSnapshotMeta, persistBars } from "../providers/import";
+import { screenerCapabilities, runScreener } from "../screener/engine";
+import { validateScreenerRequest } from "../screener/validate";
+import type { ScreenerRunRequest } from "../screener/types";
 import { seedBuiltinCalendar, seedCalendarRange } from "../calendar/hk";
 
 const app = new Hono<HonoEnv>();
@@ -179,30 +182,36 @@ function requireCsrf(c: Context<HonoEnv>): Response | null {
   return null;
 }
 
+/** 条件筛选能力说明（单位、成交额是否可用）；不包含固定列表 */
+app.get("/api/screener/capabilities", requireAuth, async (c) => {
+  const caps = await screenerCapabilities(c.env, c.env.DB);
+  return c.json(caps);
+});
+
+/** 用户设置条件后主动执行；多条件 AND；与策略信号无关 */
+app.post("/api/screener/run", requireAuth, async (c) => {
+  const csrfErr = requireCsrf(c);
+  if (csrfErr) return csrfErr;
+  const body = await c.req.json<ScreenerRunRequest>().catch(() => null);
+  if (!body) return c.json({ error: "JSON 无效", code: "INVALID_BODY" }, 400);
+  const caps = await screenerCapabilities(c.env, c.env.DB);
+  const validated = validateScreenerRequest(body, caps);
+  if (!validated.ok) {
+    return c.json({ error: validated.message, code: validated.code }, 400);
+  }
+  const result = await runScreener(c.env, c.env.DB, validated.request);
+  return c.json(result);
+});
+
+/** @deprecated 固定列表已移除；请使用 GET /api/screener/capabilities + POST /api/screener/run */
 app.get("/api/screener", requireAuth, async (c) => {
-  const minVol = Number(c.req.query("minVolume") ?? "0");
-  const q = c.req.query("q")?.trim();
-  let sql = `SELECT i.id, i.symbol, i.name_zh, i.board_lot, i.currency,
-    b.trade_date, b.close_cents, b.volume,
-    (SELECT direction FROM signals s WHERE s.instrument_id = i.id ORDER BY trade_date DESC LIMIT 1) as last_signal
-    FROM instruments i
-    LEFT JOIN bars_daily b ON b.instrument_id = i.id
-      AND b.trade_date = (SELECT MAX(trade_date) FROM bars_daily WHERE instrument_id = i.id)
-    WHERE i.status = 'active'`;
-  const rows = await c.env.DB.prepare(sql).all();
-  let items = (rows.results ?? []) as Record<string, unknown>[];
-  if (minVol > 0) items = items.filter((r) => (r.volume as number) >= minVol);
-  if (q) items = items.filter((r) => String(r.symbol).includes(q) || String(r.name_zh).includes(q));
-  return c.json({
-    items: items.map((r) => ({
-      ...r,
-      inclusionReasons: [
-        r.last_signal ? `最近信号: ${r.last_signal}` : "符合活跃标的池",
-        isDemoProvider(c.env) ? c.env.DEMO_WATERMARK : "收盘价数据",
-      ],
-    })),
-    demo: isDemoProvider(c.env),
-  });
+  return c.json(
+    {
+      error: "筛选已改为用户条件表单；请先 GET /api/screener/capabilities，再 POST /api/screener/run",
+      code: "SCREENER_MIGRATED",
+    },
+    410,
+  );
 });
 
 app.get("/api/instruments/:id", requireAuth, async (c) => {

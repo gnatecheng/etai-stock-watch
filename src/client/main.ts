@@ -1,7 +1,15 @@
+import {
+  buildConditionsFromForm,
+  defaultScreenerForm,
+  type ScreenerFormState,
+} from "./screener-ui";
+
 type Tab = "screener" | "signals" | "watchlist" | "notifications" | "paper" | "account";
 
 let csrfToken = "";
 let currentTab: Tab = "screener";
+let screenerForm: ScreenerFormState = defaultScreenerForm();
+let screenerLastResult: Record<string, unknown> | null = null;
 
 function showToast(msg: string) {
   const el = document.getElementById("toast")!;
@@ -73,28 +81,145 @@ async function renderLogin(root: HTMLElement) {
 }
 
 async function renderScreener(root: HTMLElement) {
-  const data = await api("/api/screener");
+  const caps = await api("/api/screener/capabilities");
   root.replaceChildren();
-  for (const item of data.items) {
-    const card = el(`
-      <article class="card">
-        <div class="row">
-          <h3>${item.symbol} · ${item.name_zh}</h3>
-          <span class="pill">${item.last_signal ?? "—"}</span>
-        </div>
-        <p class="muted">每手 ${item.board_lot} · 收盘 ${item.close_cents ? (item.close_cents / 100).toFixed(2) : "—"} ${item.currency ?? "HKD"}</p>
-        <p class="muted">${(item.inclusionReasons ?? []).join("；")}</p>
-        <button class="btn secondary" data-watch>加入自选</button>
-      </article>
-    `);
-    card.querySelector("button")!.onclick = async () => {
-      await api("/api/watchlists", {
-        method: "POST",
-        body: JSON.stringify({ instrumentId: item.id }),
-      });
-      showToast(`已加入自选：${item.symbol}`);
+
+  root.appendChild(
+    el(`
+    <section class="card" data-screener-intro>
+      <h3>条件筛选（自定义 · 非固定列表）</h3>
+      <p class="muted">${caps.disclaimer}</p>
+      <p class="muted">${caps.signalDisclaimer}</p>
+      ${caps.demo ? `<p class="pill" style="background:#7c2d12;color:#ffedd5">DEMO · ${caps.demoWatermark}</p>` : ""}
+    </section>
+  `),
+  );
+
+  const formWrap = el(`
+    <section class="card form screener-form">
+      <h3>设置条件（同时满足 AND）</h3>
+      <label class="check-row"><input type="checkbox" data-f="priceEnabled" /> 收盘价区间（${caps.units.price}）</label>
+      <div class="cond-fields" data-price-fields>
+        <input data-f="priceMin" inputmode="decimal" placeholder="最低价 HKD（可选）" value="${screenerForm.priceMin}" />
+        <input data-f="priceMax" inputmode="decimal" placeholder="最高价 HKD（可选）" value="${screenerForm.priceMax}" />
+      </div>
+      <label class="check-row"><input type="checkbox" data-f="changeEnabled" /> 涨跌幅区间（${caps.units.changePct}）</label>
+      <div class="cond-fields" data-change-fields>
+        <input data-f="changeMin" inputmode="decimal" placeholder="最低 %（可选）" value="${screenerForm.changeMin}" />
+        <input data-f="changeMax" inputmode="decimal" placeholder="最高 %（可选）" value="${screenerForm.changeMax}" />
+      </div>
+      <label class="check-row"><input type="checkbox" data-f="maEnabled" /> 均线关系（${caps.units.ma}）</label>
+      <div class="cond-fields" data-ma-fields>
+        <input data-f="maPeriod" inputmode="numeric" placeholder="周期" value="${screenerForm.maPeriod}" />
+        <select data-f="maRelation">
+          <option value="above" ${screenerForm.maRelation === "above" ? "selected" : ""}>收盘价高于均线</option>
+          <option value="below" ${screenerForm.maRelation === "below" ? "selected" : ""}>收盘价低于均线</option>
+        </select>
+      </div>
+      <div class="card" style="opacity:${caps.turnoverSupported ? 1 : 0.55}">
+        <p><strong>成交额</strong>（${caps.units.turnover}）</p>
+        ${
+          caps.turnoverSupported
+            ? `<p class="muted">当前环境支持成交额条件，请在 API 请求中添加 turnover 类型（Web 表单后续可勾选）。</p>`
+            : `<p class="muted">${caps.turnoverUnsupportedReason ?? "成交额不可用"}</p>`
+        }
+      </div>
+      <div class="row screener-actions">
+        <button class="btn" type="button" data-screener-run>执行筛选</button>
+        <button class="btn secondary" type="button" data-screener-reset>重置</button>
+      </div>
+    </section>
+  `);
+
+  const syncFormFromDom = () => {
+    for (const key of Object.keys(screenerForm) as (keyof ScreenerFormState)[]) {
+      const input = formWrap.querySelector(`[data-f="${key}"]`) as HTMLInputElement | HTMLSelectElement | null;
+      if (!input) continue;
+      if (input.type === "checkbox") {
+        (screenerForm[key] as boolean) = (input as HTMLInputElement).checked;
+      } else {
+        (screenerForm[key] as string) = input.value;
+      }
+    }
+  };
+
+  for (const cb of ["priceEnabled", "changeEnabled", "maEnabled"] as const) {
+    const box = formWrap.querySelector(`[data-f="${cb}"]`) as HTMLInputElement;
+    box.checked = screenerForm[cb];
+    box.onchange = () => {
+      screenerForm[cb] = box.checked;
     };
-    root.appendChild(card);
+  }
+
+  const run = async () => {
+    syncFormFromDom();
+    const conditions = buildConditionsFromForm(screenerForm);
+    if (!conditions.length) {
+      showToast("请勾选并填写至少一项条件");
+      return;
+    }
+    try {
+      screenerLastResult = await api("/api/screener/run", {
+        method: "POST",
+        body: JSON.stringify({ conditions }),
+      });
+      render();
+    } catch (err) {
+      showToast(String(err));
+    }
+  };
+
+  formWrap.querySelector("[data-screener-run]")!.addEventListener("click", run);
+  formWrap.querySelector("[data-screener-reset]")!.addEventListener("click", () => {
+    screenerForm = defaultScreenerForm();
+    screenerLastResult = null;
+    render();
+  });
+
+  root.appendChild(formWrap);
+
+  if (screenerLastResult) {
+    const r = screenerLastResult;
+    const hits = (r.hits as Record<string, unknown>[]) ?? [];
+    root.appendChild(
+      el(`
+      <section class="card" data-screener-results>
+        <h3>筛选结果</h3>
+        <p class="muted">数据日期 ${r.asOfDate} · ${r.dataLabel}</p>
+        ${r.message ? `<p class="empty-state">${r.message}</p>` : ""}
+        <p class="muted">命中 ${hits.length} / 评估 ${r.evaluatedCount} 只</p>
+      </section>
+    `),
+    );
+    if (!hits.length) {
+      return;
+    }
+    for (const item of hits) {
+      const reasons = (item.summaryReasons as string[] ?? []).join("；");
+      const detail = (item.conditionResults as { type: string; reason: string }[])
+        ?.map((c) => `<li>${c.type}: ${c.reason}</li>`)
+        .join("");
+      const card = el(`
+        <article class="card" data-screener-hit>
+          <div class="row">
+            <h3>${item.symbol} · ${item.nameZh}</h3>
+            <span class="pill">命中</span>
+          </div>
+          <p class="muted">每手 ${item.boardLot} · ${item.tradeDate}</p>
+          <p class="muted">${reasons}</p>
+          <ul class="muted hit-detail">${detail}</ul>
+          <button class="btn secondary" data-watch>加入自选</button>
+        </article>
+      `);
+      card.querySelector("[data-watch]")!.addEventListener("click", async () => {
+        await api("/api/watchlists", {
+          method: "POST",
+          body: JSON.stringify({ instrumentId: item.instrumentId }),
+        });
+        showToast(`已加入自选：${item.symbol}`);
+      });
+      root.appendChild(card);
+    }
   }
 }
 

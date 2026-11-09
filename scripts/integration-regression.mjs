@@ -55,8 +55,8 @@ async function run() {
     `buy signal required got ${JSON.stringify((sig.data.items ?? []).map((s) => s.direction))}`,
   );
 
-  const unauth = await json("/api/screener");
-  assert(unauth.res.status === 401, "screener 401");
+  const unauth = await json("/api/screener/capabilities");
+  assert(unauth.res.status === 401, "screener capabilities 401");
 
   const testEmail = `regtest-${Date.now()}@local.dev`;
   const invite = await json("/api/admin/invitations", {
@@ -97,6 +97,37 @@ async function run() {
   const adminWl = await json("/api/watchlists", { headers: { Cookie: cookie } });
   const userWl = await json("/api/watchlists", { headers: { Cookie: userCookie } });
   assert(adminWl.data.items.length === 0, "admin watchlist isolated");
+  const caps = await json("/api/screener/capabilities", { headers: { Cookie: userCookie } });
+  assert(caps.res.ok, "screener capabilities");
+  assert(caps.data.turnoverSupported === false, "demo turnover off");
+
+  const screener = await json("/api/screener/run", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: userCookie,
+      "X-CSRF-Token": userCsrf,
+      Origin: "http://127.0.0.1:8787",
+    },
+    body: JSON.stringify({
+      conditions: [{ type: "price_close", minHkd: 1, maxHkd: 10000 }],
+    }),
+  });
+  assert(screener.res.ok, `screener run ${JSON.stringify(screener.data)}`);
+
+  const turnFail = await json("/api/screener/run", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: userCookie,
+      "X-CSRF-Token": userCsrf,
+      Origin: "http://127.0.0.1:8787",
+    },
+    body: JSON.stringify({ conditions: [{ type: "turnover", minHkd: 1 }] }),
+  });
+  assert(turnFail.res.status === 400, "turnover rejected 400");
+  assert(turnFail.data.code === "TURNOVER_NOT_SUPPORTED", "turnover code");
+
   assert(userWl.data.items.length === 1, "user watchlist");
 
   const jobs = await json("/api/jobs/latest", { headers: { Cookie: userCookie } });

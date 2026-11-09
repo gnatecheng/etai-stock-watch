@@ -81,9 +81,47 @@ async function main() {
   await page.screenshot({ path: `${OUT}/accept-01-watchlist-empty.png`, fullPage: true });
   await log("screenshot accept-01-watchlist-empty");
 
+  const turnBlk = await fetch(`${BASE}/api/screener/run`, {
+    method: "POST",
+    headers: hdr(cookie, csrf),
+    body: JSON.stringify({ conditions: [{ type: "turnover", minHkd: 1 }] }),
+  });
+  await log(`screener API turnover when unsupported: ${turnBlk.status} ${JSON.stringify(await turnBlk.json())}`);
+  if (turnBlk.status !== 400) throw new Error("Expected 400 for turnover in DEMO");
+
   await page.click('button[data-tab="screener"]');
-  await page.click('button[data-watch]', { timeout: 5000 });
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: `${OUT}/screen-01-screener-form.png`, fullPage: true });
+  await page.locator('[data-f="priceEnabled"]').check();
+  await page.locator('[data-f="priceMin"]').fill("250");
+  await page.locator('[data-f="priceMax"]').fill("300");
+  await page.locator('[data-f="maEnabled"]').check();
+  await page.locator('[data-screener-run]').click();
+  await page.waitForTimeout(1200);
+  await page.screenshot({ path: `${OUT}/screen-02-screener-hits.png`, fullPage: true });
+  const hitCount = await page.locator("[data-screener-hit]").count();
+  await log(`screener UI hits: ${hitCount}`);
+  if (hitCount < 1) throw new Error("Expected screener hits for acceptance DEMO");
+
+  await page.locator('[data-f="priceMin"]').fill("400");
+  await page.locator('[data-f="priceMax"]').fill("500");
+  await page.locator('[data-screener-run]').click();
   await page.waitForTimeout(800);
+  const hitCount2 = await page.locator("[data-screener-hit]").count();
+  await log(`screener after tighten (min 400): hits=${hitCount2}`);
+  if (hitCount2 > 0) throw new Error("Expected empty after price tighten");
+
+  await page.locator('[data-screener-reset]').click();
+  await page.waitForTimeout(400);
+  await page.locator('[data-f="priceEnabled"]').check();
+  await page.locator('[data-f="priceMin"]').fill("250");
+  await page.locator('[data-f="priceMax"]').fill("300");
+  await page.locator('[data-screener-run]').click();
+  await page.waitForTimeout(800);
+  await page.locator("[data-screener-hit] [data-watch]").first().click();
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: `${OUT}/screen-03-screener-watchlist-add.png`, fullPage: true });
+
   await page.click('button[data-tab="watchlist"]');
   await page.waitForTimeout(500);
   await page.screenshot({ path: `${OUT}/accept-02-watchlist-filled.png`, fullPage: true });

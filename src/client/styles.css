@@ -186,3 +186,37 @@ input {
 .status-filled {
   color: var(--ok);
 }
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.88rem;
+  margin: 0.35rem 0;
+}
+
+.cond-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0.25rem 0 0.65rem 0.5rem;
+}
+
+select {
+  width: 100%;
+  padding: 0.65rem;
+  border-radius: 8px;
+  border: 1px solid #475569;
+  background: #0b1220;
+  color: var(--text);
+}
+
+.hit-detail {
+  margin: 0.25rem 0 0.5rem;
+  padding-left: 1.1rem;
+  font-size: 0.78rem;
+}
+
+.screener-actions .btn {
+  flex: 1;
+}
