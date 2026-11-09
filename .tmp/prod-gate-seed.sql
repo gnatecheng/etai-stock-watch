@@ -1,2 +1,0 @@
-INSERT OR REPLACE INTO users (id, email, display_name, password_hash, role, status, created_at, updated_at) VALUES ('usr_prod_gate_test', 'prod-gate@example.com', 'Gate', 'pbkdf2$210000$t9xfiNF6RlA0PNE+aQVEIw==$WO4JaSDC1Zrl7F5DxI9eHpEvSjK7TGPpabXxCL74kf8=', 'admin', 'active', datetime('now'), datetime('now'));
-INSERT OR IGNORE INTO paper_accounts (user_id, cash_cents, currency, updated_at) VALUES ('usr_prod_gate_test', 100000000, 'HKD', datetime('now'));
