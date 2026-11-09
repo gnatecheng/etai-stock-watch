@@ -111,6 +111,10 @@ export async function seedAcceptanceScenario(env: Env): Promise<{
     );
   }
 
+  const idempotencyKey = `HK|${ACCEPTANCE_SIGNAL_DATE}|ma_crossover_v1|1`;
+  await env.DB.prepare("DELETE FROM job_runs WHERE idempotency_key = ?")
+    .bind(idempotencyKey)
+    .run();
   const eod = await runEodPipeline(env, ACCEPTANCE_SIGNAL_DATE);
   return { signalDate: ACCEPTANCE_SIGNAL_DATE, label: ACCEPTANCE_SCENARIO_LABEL, eod };
 }

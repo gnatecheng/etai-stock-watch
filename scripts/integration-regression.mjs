@@ -38,14 +38,7 @@ async function run() {
 
   const boot = await json("/api/admin/bootstrap-acceptance", { method: "POST" });
   assert(boot.res.ok, "bootstrap-acceptance");
-  assert(
-    (boot.data.scenario?.eod?.signalsCreated ?? 0) >= 1,
-    `acceptance buy signal (${JSON.stringify(boot.data.scenario?.eod)})`,
-  );
   results.push("bootstrap-acceptance");
-
-  const unauth = await json("/api/screener");
-  assert(unauth.res.status === 401, "screener 401");
 
   const login = await json("/api/auth/login", {
     method: "POST",
@@ -53,8 +46,17 @@ async function run() {
     body: JSON.stringify({ email: "admin@local.dev", password: "dev-admin-change-me" }),
   });
   assert(login.res.ok, "admin login");
-  const cookie = login.res.headers.get("set-cookie");
+  const cookie = login.res.headers.get("set-cookie")?.split(";")[0] ?? "";
   const csrf = login.data.csrfToken;
+
+  const sig = await json("/api/signals", { headers: { Cookie: cookie } });
+  assert(
+    (sig.data.items ?? []).some((s) => s.direction === "buy"),
+    `buy signal required got ${JSON.stringify((sig.data.items ?? []).map((s) => s.direction))}`,
+  );
+
+  const unauth = await json("/api/screener");
+  assert(unauth.res.status === 401, "screener 401");
 
   const testEmail = `regtest-${Date.now()}@local.dev`;
   const invite = await json("/api/admin/invitations", {
@@ -79,7 +81,7 @@ async function run() {
     }),
   });
   assert(reg.ok, `invite register ${await reg.clone().text()}`);
-  const userCookie = reg.headers.get("set-cookie");
+  const userCookie = reg.headers.get("set-cookie") ?? "";
   const userCsrf = (await reg.json()).csrfToken;
 
   await json("/api/watchlists", {
@@ -100,10 +102,7 @@ async function run() {
   const jobs = await json("/api/jobs/latest", { headers: { Cookie: userCookie } });
   assert(jobs.res.status === 403, "non-admin jobs");
 
-  const sig = await json("/api/signals", { headers: { Cookie: cookie } });
-  assert((sig.data.items ?? []).length > 0, `signals (${(sig.data.items ?? []).length})`);
-
-  const sigRow = sig.data.items.find((s) => s.direction === "buy") ?? sig.data.items[0];
+  const sigRow = sig.data.items.find((s) => s.direction === "buy");
   const paper = await json("/api/paper/confirm", {
     method: "POST",
     headers: {
@@ -114,7 +113,7 @@ async function run() {
     },
     body: JSON.stringify({
       instrumentId: sigRow.instrument_id,
-      side: sigRow.direction === "sell" ? "sell" : "buy",
+      side: "buy",
       quantity: 100,
       signalTradeDate: sigRow.trade_date,
       idempotencyKey: `reg-${sigRow.id}`,
