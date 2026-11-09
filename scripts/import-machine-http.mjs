@@ -21,6 +21,8 @@ async function waitReady() {
 
 async function main() {
   await mkdir("/opt/cursor/artifacts", { recursive: true });
+  const { execSync } = await import("node:child_process");
+  execSync("npm run build:worker", { cwd: process.cwd(), stdio: "inherit" });
   dev = spawn(
     "npx",
     ["wrangler", "dev", "--port", "8787", "--var", `IMPORT_MACHINE_API_KEY:${KEY}`],
