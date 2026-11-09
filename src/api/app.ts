@@ -545,6 +545,7 @@ app.post("/api/admin/bootstrap-acceptance", async (c) => {
   await c.env.DB.prepare("DELETE FROM paper_positions").run();
   await c.env.DB.prepare("DELETE FROM notifications").run();
   await c.env.DB.prepare("DELETE FROM signals").run();
+  await c.env.DB.prepare("DELETE FROM job_runs").run();
   await c.env.DB.prepare("DELETE FROM watchlists").run();
   const scenario = await seedAcceptanceScenario(c.env);
   return c.json({ ok: true, scenario, note: "合成验收场景；下一 session 需 CSV 导入后重试确认" });
