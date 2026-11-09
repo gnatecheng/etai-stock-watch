@@ -121,7 +121,7 @@ async function renderSignals(root: HTMLElement) {
         <p class="muted">${(s.reasons ?? []).join("；")}</p>
         ${
           s.direction === "buy" || s.direction === "sell"
-            ? `<button class="btn" data-confirm>确认模拟${s.direction === "buy" ? "买入" : "卖出"}（PAPER）</button>
+            ? `<button class="btn" data-confirm data-side="${s.direction}">确认模拟${s.direction === "buy" ? "买入" : "卖出"}（PAPER）</button>
                <p class="muted" data-confirm-status></p>`
             : ""
         }

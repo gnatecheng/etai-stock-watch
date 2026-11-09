@@ -7,6 +7,8 @@ import type { DailyBar } from "./types";
 
 export const ACCEPTANCE_SIGNAL_DATE = "2024-08-28";
 export const ACCEPTANCE_NEXT_SESSION = "2024-08-29";
+export const ACCEPTANCE_SELL_SIGNAL_DATE = "2024-09-06";
+export const ACCEPTANCE_SELL_NEXT_SESSION = "2024-09-09";
 export const ACCEPTANCE_INSTRUMENT_ID = "inst_demo_00700";
 
 /** 收盘价（分）序列：前段在均线下方横盘，末两日上穿 */
@@ -60,18 +62,43 @@ export function acceptanceBarsThroughSignal(): DailyBar[] {
   }));
 }
 
-export function acceptanceNextSessionBar(): DailyBar {
-  return {
+/** 买入信号后至卖出信号日（含）的合成 K 线；延续高位后急跌下穿均线 */
+const POST_BUY_SEQUENCE: { date: string; close: number; open: number; vol: number }[] = [
+  { date: "2024-08-29", close: 28050, open: 27900, vol: 650000 },
+  { date: "2024-08-30", close: 28300, open: 28050, vol: 660000 },
+  { date: "2024-09-02", close: 28600, open: 28300, vol: 670000 },
+  { date: "2024-09-03", close: 28800, open: 28600, vol: 680000 },
+  { date: "2024-09-04", close: 28900, open: 28800, vol: 690000 },
+  { date: "2024-09-05", close: 28950, open: 28900, vol: 700000 },
+  { date: "2024-09-06", close: 26800, open: 28900, vol: 750000 },
+];
+
+function mapSequence(seq: typeof CLOSE_CENTS_SEQUENCE): DailyBar[] {
+  return seq.map((r) => ({
     instrument_id: ACCEPTANCE_INSTRUMENT_ID,
-    trade_date: ACCEPTANCE_NEXT_SESSION,
-    open_cents: 27900,
-    high_cents: 28100,
-    low_cents: 27800,
-    close_cents: 28050,
-    volume: 650000,
-    turnover_cents: Math.round((28050 * 650000) / 100),
+    trade_date: r.date,
+    open_cents: r.open,
+    high_cents: Math.max(r.open, r.close) + 50,
+    low_cents: Math.min(r.open, r.close) - 50,
+    close_cents: r.close,
+    volume: r.vol,
+    turnover_cents: Math.round((r.close * r.vol) / 100),
     adj_factor: 10000,
-  };
+  }));
+}
+
+export function acceptanceBarsThroughSellSignal(): DailyBar[] {
+  return [...mapSequence(CLOSE_CENTS_SEQUENCE), ...mapSequence(POST_BUY_SEQUENCE)];
+}
+
+export function acceptanceNextSessionBar(): DailyBar {
+  return mapSequence([{ date: ACCEPTANCE_NEXT_SESSION, close: 28050, open: 27900, vol: 650000 }])[0]!;
+}
+
+export function acceptanceSellNextSessionBar(): DailyBar {
+  return mapSequence([
+    { date: ACCEPTANCE_SELL_NEXT_SESSION, close: 26750, open: 26800, vol: 720000 },
+  ])[0]!;
 }
 
 export const ACCEPTANCE_SCENARIO_LABEL =

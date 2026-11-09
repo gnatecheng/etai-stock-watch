@@ -9,25 +9,22 @@ import { DemoMarketDataProvider } from "../providers/demo";
 
 const STRATEGY_SLUG = "ma_crossover_v1";
 
+import {
+  processPendingPaperOrdersOnEod,
+  type PendingEodResult,
+} from "../paper/pending-eod";
+
 export interface EodResult {
   status: "skipped" | "failed" | "completed";
   tradeDate: string;
   message: string;
   signalsCreated?: number;
+  pending?: PendingEodResult;
 }
 
 export async function runEodPipeline(env: Env, tradeDate?: string): Promise<EodResult> {
   const date = tradeDate ?? formatHkDate();
   const idempotencyKey = `HK|${date}|${STRATEGY_SLUG}|1`;
-
-  const existing = await env.DB.prepare(
-    "SELECT status FROM job_runs WHERE idempotency_key = ?",
-  )
-    .bind(idempotencyKey)
-    .first<{ status: string }>();
-  if (existing?.status === "completed") {
-    return { status: "skipped", tradeDate: date, message: "本日批次已完成（幂等）" };
-  }
 
   const { session, source } = await getSessionType(env.DB, date);
   const calCheck = assertCalendarCoverage(date, source);
@@ -38,6 +35,21 @@ export async function runEodPipeline(env: Env, tradeDate?: string): Promise<EodR
   if (session === "closed") {
     await recordJob(env.DB, idempotencyKey, date, "skipped", { reason: "休市" });
     return { status: "skipped", tradeDate: date, message: "休市日跳过" };
+  }
+
+  const existing = await env.DB.prepare(
+    "SELECT status FROM job_runs WHERE idempotency_key = ?",
+  )
+    .bind(idempotencyKey)
+    .first<{ status: string }>();
+  if (existing?.status === "completed") {
+    const pending = await processPendingPaperOrdersOnEod(env.DB, date);
+    return {
+      status: "skipped",
+      tradeDate: date,
+      message: "本日批次已完成（幂等）；已重试 pending 推进",
+      pending,
+    };
   }
 
   const ready = providerReady(env);
@@ -151,8 +163,15 @@ export async function runEodPipeline(env: Env, tradeDate?: string): Promise<EodR
     }
   }
 
-  await recordJob(env.DB, idempotencyKey, date, "completed", { signalsCreated });
-  return { status: "completed", tradeDate: date, message: "EOD 完成", signalsCreated };
+  const pending = await processPendingPaperOrdersOnEod(env.DB, date);
+  await recordJob(env.DB, idempotencyKey, date, "completed", { signalsCreated, pending });
+  return {
+    status: "completed",
+    tradeDate: date,
+    message: "EOD 完成",
+    signalsCreated,
+    pending,
+  };
 }
 
 async function recordJob(

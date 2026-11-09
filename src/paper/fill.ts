@@ -1,5 +1,11 @@
 import { isTradableSession } from "../calendar/hk";
-import type { BarRow } from "./engine";
+
+export interface BarRow {
+  trade_date: string;
+  open_cents: number;
+  close_cents: number;
+  volume: number;
+}
 
 /**
  * 信号日之后、在日历上可交易且行情有效的最近一根 bar；用下一 session 开盘价成交。

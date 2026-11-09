@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { freshMigratedDb } from "./helpers/sqlite-d1";
 import { confirmPaperOrder } from "../src/paper/engine";
+import { processPendingPaperOrdersOnEod } from "../src/paper/pending-eod";
 import { DEMO_FEE_SCHEDULES } from "../src/paper/fees";
 import { seedCalendarRange } from "../src/calendar/hk";
 import { newId } from "../src/lib/id";
@@ -11,7 +12,7 @@ import {
   ACCEPTANCE_NEXT_SESSION,
 } from "../src/providers/demo-scenario";
 
-describe("pending retry after next session data", () => {
+describe("pending filled by EOD when next session ready", () => {
   let d1: D1Database;
   let uid: string;
   const inst = ACCEPTANCE_INSTRUMENT_ID;
@@ -62,7 +63,7 @@ describe("pending retry after next session data", () => {
     bars = [{ trade_date: ACCEPTANCE_SIGNAL_DATE, open_cents: 27600, close_cents: 27700, volume: 500000 }];
   });
 
-  it("pending then filled on same idempotency after import", async () => {
+  it("confirm stays pending; API re-confirm does not fill; EOD fills once", async () => {
     const key = "retry-key";
     const p1 = await confirmPaperOrder(
       d1,
@@ -113,7 +114,13 @@ describe("pending retry after next session data", () => {
       bars,
       DEMO_FEE_SCHEDULES,
     );
-    expect(p2.ok && p2.status).toBe("filled");
+    expect(p2.ok && p2.status).toBe("pending");
+
+    const eod1 = await processPendingPaperOrdersOnEod(d1, ACCEPTANCE_NEXT_SESSION, DEMO_FEE_SCHEDULES);
+    expect(eod1.filled).toBe(1);
+    const eod2 = await processPendingPaperOrdersOnEod(d1, ACCEPTANCE_NEXT_SESSION, DEMO_FEE_SCHEDULES);
+    expect(eod2.filled).toBe(0);
+
     if (p1.ok && p2.ok) expect(p1.orderId).toBe(p2.orderId);
     const trade = await d1
       .prepare("SELECT trade_date, price_cents FROM paper_trades WHERE order_id = ?")
@@ -122,5 +129,11 @@ describe("pending retry after next session data", () => {
     expect(trade!.trade_date).toBe(ACCEPTANCE_NEXT_SESSION);
     expect(trade!.trade_date > ACCEPTANCE_SIGNAL_DATE).toBe(true);
     expect(trade!.price_cents).toBe(27900);
+
+    const tradeCount = await d1
+      .prepare("SELECT COUNT(*) as n FROM paper_trades WHERE order_id = ?")
+      .bind(p2.ok ? p2.orderId : "")
+      .first<{ n: number }>();
+    expect(tradeCount!.n).toBe(1);
   });
 });

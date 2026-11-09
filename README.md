@@ -12,7 +12,7 @@
 | 已实现并本地验证 | `test` 24/24、`test:integration`、`npm run acceptance`（合成场景 UI 闭环截图） |
 | 未做 | 云端部署、正式行情授权、子域名绑定、生产 Cron 启用 |
 
-最近本地检查：`npm test` 24/24；`npm run acceptance` 通过（buy 确认→pending→导入 2024-08-29→filled）。逐项映射见 [docs/acceptance-matrix.md](./docs/acceptance-matrix.md)、[docs/acceptance-report.md](./docs/acceptance-report.md)。
+最近本地检查：`npm test` **29/29**；买入/卖出均为 **用户确认 → pending → 下一 session 行情就绪 → EOD 填单**（`confirm` 不直接成交）。`npm run test:production-gates` 对 `APP_ENV=production` 做 HTTP 阻断验收。详见 [docs/acceptance-matrix.md](./docs/acceptance-matrix.md)、[docs/acceptance-report.md](./docs/acceptance-report.md)。
 
 详见 [docs/implementation-plan.md](./docs/implementation-plan.md)（已定 vs 待定）。
 

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { freshMigratedDb } from "./helpers/sqlite-d1";
 import { confirmPaperOrder } from "../src/paper/engine";
+import { processPendingPaperOrdersOnEod } from "../src/paper/pending-eod";
 import { DEMO_FEE_SCHEDULES } from "../src/paper/fees";
 import { seedCalendarRange } from "../src/calendar/hk";
 import { newId } from "../src/lib/id";
@@ -72,7 +73,7 @@ describe("D1/SQLite paper persistence", () => {
     }
   });
 
-  it("fills on next tradable session open after signal", async () => {
+  it("fills on next tradable session open after signal via EOD", async () => {
     const signalDate = "2024-08-01";
     const r = await confirmPaperOrder(
       ctx.d1,
@@ -90,7 +91,9 @@ describe("D1/SQLite paper persistence", () => {
     );
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.status).toBe("filled");
+    expect(r.status).toBe("pending");
+    const eod = await processPendingPaperOrdersOnEod(ctx.d1, "2024-08-02", DEMO_FEE_SCHEDULES);
+    expect(eod.filled).toBe(1);
     const cash = await ctx.d1
       .prepare("SELECT cash_cents FROM paper_accounts WHERE user_id = ?")
       .bind(ctx.uid)
@@ -98,9 +101,10 @@ describe("D1/SQLite paper persistence", () => {
     expect(cash!.cash_cents).toBeLessThan(10_000_000);
   });
 
-  it("blocks duplicate spend with conditional update (concurrent)", async () => {
+  it("blocks duplicate spend with conditional update (concurrent EOD)", async () => {
     const signalDate = "2024-08-02";
-    const r1 = await confirmPaperOrder(
+    await ctx.d1.prepare("UPDATE paper_accounts SET cash_cents = 1100000 WHERE user_id = ?").bind(ctx.uid).run();
+    await confirmPaperOrder(
       ctx.d1,
       {
         userId: ctx.uid,
@@ -114,13 +118,13 @@ describe("D1/SQLite paper persistence", () => {
       ctx.bars,
       DEMO_FEE_SCHEDULES,
     );
-    const r2 = await confirmPaperOrder(
+    await confirmPaperOrder(
       ctx.d1,
       {
         userId: ctx.uid,
         instrumentId: ctx.inst,
         side: "buy",
-        quantity: 10000000,
+        quantity: 100,
         boardLot: 100,
         signalTradeDate: signalDate,
         idempotencyKey: "concurrent-b",
@@ -128,9 +132,9 @@ describe("D1/SQLite paper persistence", () => {
       ctx.bars,
       DEMO_FEE_SCHEDULES,
     );
-    expect(r1.ok).toBe(true);
-    expect(r2.ok).toBe(false);
-    if (!r2.ok) expect(r2.code).toBe("INSUFFICIENT_FUNDS");
+    const eod = await processPendingPaperOrdersOnEod(ctx.d1, "2024-08-05", DEMO_FEE_SCHEDULES);
+    expect(eod.filled).toBe(1);
+    expect(eod.rejected.some((x) => x.code === "INSUFFICIENT_FUNDS")).toBe(true);
   });
 
   it("pending without next bar", async () => {

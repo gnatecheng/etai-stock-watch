@@ -1,5 +1,10 @@
 import { chromium } from "playwright-core";
+import { spawn } from "node:child_process";
+import { setTimeout as sleep } from "node:timers/promises";
 import { mkdir, writeFile, appendFile } from "node:fs/promises";
+const ACCEPTANCE_NEXT_SESSION = "2024-08-29";
+const ACCEPTANCE_SELL_SIGNAL_DATE = "2024-09-06";
+const ACCEPTANCE_SELL_NEXT_SESSION = "2024-09-09";
 
 const BASE = process.env.ESW_BASE_URL ?? "http://127.0.0.1:8787";
 const OUT = "/opt/cursor/artifacts";
@@ -20,9 +25,28 @@ function hdr(cookie, csrf, extra = {}) {
   };
 }
 
+async function waitReady() {
+  const start = Date.now();
+  while (Date.now() - start < 25000) {
+    try {
+      const r = await fetch(`${BASE}/api/health`);
+      if (r.ok) return;
+    } catch {
+      /* retry */
+    }
+    await sleep(300);
+  }
+  throw new Error("wrangler dev not ready on 8787");
+}
+
+let dev;
+
 async function main() {
   await mkdir(OUT, { recursive: true });
   await writeFile(LOG, `# acceptance walkthrough ${new Date().toISOString()}\n`);
+
+  dev = spawn("npx", ["wrangler", "dev", "--port", "8787"], { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"] });
+  await waitReady();
 
   const boot = await fetch(`${BASE}/api/admin/bootstrap-acceptance`, { method: "POST" });
   const bootJson = await boot.json();
@@ -78,6 +102,7 @@ async function main() {
   const statusText = await page.locator("[data-confirm-status]").first().textContent();
   await log(`UI confirm status: ${statusText}`);
 
+  const idemKey = `${buy.id}-${buy.trade_date}`;
   const pendingRes = await fetch(`${BASE}/api/paper/confirm`, {
     method: "POST",
     headers: hdr(cookie, csrf),
@@ -86,26 +111,35 @@ async function main() {
       side: "buy",
       quantity: 100,
       signalTradeDate: buy.trade_date,
-      idempotencyKey: `${buy.id}-${buy.trade_date}`,
+      idempotencyKey: idemKey,
     }),
   });
   const pendingJson = await pendingRes.json();
-  await log(`paper confirm #1 (no next bar): ${JSON.stringify(pendingJson)}`);
-  if (pendingJson.status !== "pending") await log("WARN expected pending before import");
+  await log(`paper confirm idempotent: ${JSON.stringify(pendingJson)}`);
+  if (pendingJson.status !== "pending") throw new Error("Expected pending after user confirm");
 
   await page.click('button[data-tab="paper"]');
   await page.waitForTimeout(500);
   await page.screenshot({ path: `${OUT}/accept-05-paper-pending.png`, fullPage: true });
 
-  const csv = `symbol,trade_date,open,high,low,close,volume\nDEMO:00700,2024-08-29,279.0,281.0,278.0,280.5,650000`;
+  const csvBuyFill = `symbol,trade_date,open,high,low,close,volume\nDEMO:00700,${ACCEPTANCE_NEXT_SESSION},279.0,281.0,278.0,280.5,650000`;
   const imp = await fetch(`${BASE}/api/admin/import/bars`, {
     method: "POST",
     headers: { ...hdr(cookie, csrf), "Content-Type": "text/plain" },
-    body: csv,
+    body: csvBuyFill,
   });
-  await log(`import next session: ${imp.status} ${await imp.text()}`);
+  await log(`import buy fill session: ${imp.status} ${await imp.text()}`);
 
-  const fillRes = await fetch(`${BASE}/api/paper/confirm`, {
+  const eodBuy = await fetch(`${BASE}/api/admin/eod/run`, {
+    method: "POST",
+    headers: hdr(cookie, csrf),
+    body: JSON.stringify({ tradeDate: ACCEPTANCE_NEXT_SESSION }),
+  });
+  const eodBuyJson = await eodBuy.json();
+  await log(`EOD buy fill day: ${eodBuy.status} ${JSON.stringify(eodBuyJson)}`);
+  if ((eodBuyJson.pending?.filled ?? 0) < 1) throw new Error("EOD should fill buy pending");
+
+  const reconfirm = await fetch(`${BASE}/api/paper/confirm`, {
     method: "POST",
     headers: hdr(cookie, csrf),
     body: JSON.stringify({
@@ -113,39 +147,88 @@ async function main() {
       side: "buy",
       quantity: 100,
       signalTradeDate: buy.trade_date,
-      idempotencyKey: `${buy.id}-${buy.trade_date}`,
+      idempotencyKey: idemKey,
     }),
   });
-  const fillJson = await fillRes.json();
-  await log(`paper confirm #2 (same idempotency): ${JSON.stringify(fillJson)}`);
-  if (fillJson.status !== "filled") throw new Error("Expected filled after next session import");
-  if (fillJson.orderId !== pendingJson.orderId) throw new Error("Idempotency order id mismatch");
+  const reconfirmJson = await reconfirm.json();
+  await log(`paper confirm after EOD (no fill via API): ${JSON.stringify(reconfirmJson)}`);
+  if (reconfirmJson.status !== "filled") throw new Error("Order should be filled after EOD not API");
 
-  const orders = await (await fetch(`${BASE}/api/paper/orders`, { headers: { Cookie: cookie } })).json();
-  await log(`orders: ${JSON.stringify(orders.items)}`);
-
-  const dup = await fetch(`${BASE}/api/paper/confirm`, {
-    method: "POST",
-    headers: hdr(cookie, csrf),
-    body: JSON.stringify({
-      instrumentId: buy.instrument_id,
-      side: "buy",
-      quantity: 100,
-      signalTradeDate: buy.trade_date,
-      idempotencyKey: `${buy.id}-${buy.trade_date}`,
-    }),
-  });
-  const dupJson = await dup.json();
-  const trades = await (
-    await fetch(`${BASE}/api/paper/positions`, { headers: { Cookie: cookie } })
-  ).json();
-  await log(`duplicate confirm: ${JSON.stringify(dupJson)} tradeCount=${trades.trades?.length}`);
-  if ((trades.trades?.length ?? 0) > 1) throw new Error("Duplicate trades — 重复扣款风险");
+  const tradesAfterBuy = await (await fetch(`${BASE}/api/paper/positions`, { headers: { Cookie: cookie } })).json();
+  await log(`after buy EOD: cash=${tradesAfterBuy.account?.cash_cents} pos=${JSON.stringify(tradesAfterBuy.positions)}`);
 
   await page.reload();
   await page.click('button[data-tab="paper"]');
   await page.waitForTimeout(600);
   await page.screenshot({ path: `${OUT}/accept-06-paper-filled-next-session.png`, fullPage: true });
+
+  const csvSellPath = `symbol,trade_date,open,high,low,close,volume
+DEMO:00700,2024-08-30,280.5,284.0,279.0,283.0,660000
+DEMO:00700,2024-09-02,283.0,287.0,282.0,286.0,670000
+DEMO:00700,2024-09-03,286.0,289.0,285.0,288.0,680000
+DEMO:00700,2024-09-04,288.0,290.0,287.0,289.0,690000
+DEMO:00700,2024-09-05,289.0,290.0,288.0,289.5,700000
+DEMO:00700,${ACCEPTANCE_SELL_SIGNAL_DATE},289.0,290.0,265.0,268.0,750000`;
+  await fetch(`${BASE}/api/admin/import/bars`, {
+    method: "POST",
+    headers: { ...hdr(cookie, csrf), "Content-Type": "text/plain" },
+    body: csvSellPath,
+  });
+  const eodSellSig = await fetch(`${BASE}/api/admin/eod/run`, {
+    method: "POST",
+    headers: hdr(cookie, csrf),
+    body: JSON.stringify({ tradeDate: ACCEPTANCE_SELL_SIGNAL_DATE }),
+  });
+  const sellSigJson = await eodSellSig.json();
+  await log(`EOD sell signal day: ${eodSellSig.status} signals=${sellSigJson.signalsCreated}`);
+
+  await page.click('button[data-tab="signals"]');
+  await page.waitForTimeout(800);
+  const sellBtn = page.locator('[data-confirm][data-side="sell"]').first();
+  if ((await sellBtn.count()) === 0) throw new Error("No sell confirm after EOD");
+  await sellBtn.click();
+  await page.waitForTimeout(800);
+  await page.screenshot({ path: `${OUT}/accept-08-signals-sell-confirm.png`, fullPage: true });
+
+  const sigRes2 = await fetch(`${BASE}/api/signals`, { headers: { Cookie: cookie } });
+  const sell = (await sigRes2.json()).items?.find((s) => s.direction === "sell");
+  const sellKey = `${sell.id}-${sell.trade_date}`;
+  const sellPending = await fetch(`${BASE}/api/paper/confirm`, {
+    method: "POST",
+    headers: hdr(cookie, csrf),
+    body: JSON.stringify({
+      instrumentId: sell.instrument_id,
+      side: "sell",
+      quantity: 100,
+      signalTradeDate: sell.trade_date,
+      idempotencyKey: sellKey,
+    }),
+  });
+  const sellPendingJson = await sellPending.json();
+  await log(`sell paper pending: ${JSON.stringify(sellPendingJson)}`);
+
+  await fetch(`${BASE}/api/admin/import/bars`, {
+    method: "POST",
+    headers: { ...hdr(cookie, csrf), "Content-Type": "text/plain" },
+    body: `symbol,trade_date,open,high,low,close,volume\nDEMO:00700,${ACCEPTANCE_SELL_NEXT_SESSION},268.0,270.0,266.0,267.5,720000`,
+  });
+  const eodSellFill = await fetch(`${BASE}/api/admin/eod/run`, {
+    method: "POST",
+    headers: hdr(cookie, csrf),
+    body: JSON.stringify({ tradeDate: ACCEPTANCE_SELL_NEXT_SESSION }),
+  });
+  const eodSellFillJson = await eodSellFill.json();
+  await log(`EOD sell fill: ${JSON.stringify(eodSellFillJson)}`);
+  if ((eodSellFillJson.pending?.filled ?? 0) < 1) throw new Error("EOD should fill sell pending");
+
+  const afterSell = await (await fetch(`${BASE}/api/paper/positions`, { headers: { Cookie: cookie } })).json();
+  await log(`after sell EOD: cash=${afterSell.account?.cash_cents} pos=${JSON.stringify(afterSell.positions)} trades=${afterSell.trades?.length}`);
+  if ((afterSell.positions?.length ?? 0) > 0) throw new Error("Position should be flat after sell");
+
+  await page.reload();
+  await page.click('button[data-tab="paper"]');
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: `${OUT}/accept-09-paper-after-sell.png`, fullPage: true });
 
   await page.click('button[data-tab="notifications"]');
   await page.waitForTimeout(500);
@@ -172,8 +255,12 @@ async function main() {
   await log("DONE ok");
 }
 
-main().catch(async (e) => {
-  await appendFile(LOG, `FAIL ${e.message}\n`);
-  console.error(e);
-  process.exit(1);
-});
+main()
+  .catch(async (e) => {
+    await appendFile(LOG, `FAIL ${e.message}\n`);
+    console.error(e);
+    process.exit(1);
+  })
+  .finally(() => {
+    if (dev) dev.kill("SIGTERM");
+  });

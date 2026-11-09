@@ -1,0 +1,23 @@
+# 本地生产门禁 HTTP 验收 — 不部署
+name = "etai-stock-watch-prod-gate"
+main = "dist/worker/index.js"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "etai-stock-watch-db"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[assets]
+directory = "dist/client"
+binding = "ASSETS"
+
+[vars]
+APP_ENV = "production"
+DEMO_WATERMARK = "演示数据，非真实行情"
+DATA_PROVIDER = "demo"
+EOD_CRON_ENABLED = "false"
+SESSION_COOKIE_NAME = "esw_session"
+HK_TIMEZONE = "Asia/Hong_Kong"
