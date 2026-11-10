@@ -6,7 +6,7 @@ import {
   getSessionToken,
   assertSameOrigin,
 } from "../middleware/auth";
-import { checkRateLimit } from "../middleware/rateLimit";
+import { checkRateLimit, checkStrictRateLimit } from "../middleware/rateLimit";
 import { hashPassword, verifyPassword } from "../auth/password";
 import { createSession, resolveSession, revokeSession, sessionCookieOptions } from "../auth/session";
 import { sha256Hex, randomToken } from "../lib/crypto";
@@ -34,7 +34,19 @@ import {
   validateFinScreenerRequest,
   type FinScreenerRequest,
 } from "../screener/financial-run";
-import { financialScreeningAllowed } from "../env";
+import { financialScreeningAllowed, isStagingDemo, isProduction } from "../env";
+import { normalizeLoginId } from "../auth/login-id";
+import {
+  activateSiteOwner,
+  activationStatus,
+  siteOwnerActivationCookieHeader,
+} from "../auth/site-owner";
+import {
+  advanceDemoTradingDay,
+  getDemoSimulationState,
+  resolveEodTradeDate,
+} from "../demo/simulation";
+import { seedStagingDemoFixture } from "../pipeline/staging-demo-seed";
 
 const app = new Hono<HonoEnv>();
 
@@ -45,24 +57,77 @@ app.use("/api/*", async (c, next) => {
   await next();
 });
 
-app.get("/api/health", (c) =>
-  c.json({
+app.get("/api/health", async (c) => {
+  const act = await activationStatus(c.env, c.env.DB);
+  return c.json({
     ok: true,
     demo: isDemoProvider(c.env),
+    stagingDemo: isStagingDemo(c.env),
     watermark: c.env.DEMO_WATERMARK,
     paper: true,
-  }),
-);
+    ownerActivationPending: act.pending,
+  });
+});
 
-app.get("/api/meta", (c) =>
-  c.json({
+app.get("/api/meta", async (c) => {
+  const act = await activationStatus(c.env, c.env.DB);
+  const sim = isStagingDemo(c.env) ? await getDemoSimulationState(c.env.DB) : null;
+  return c.json({
     name: "观股记",
     market: "HK",
     paperOnly: true,
     demoWatermark: isDemoProvider(c.env) ? c.env.DEMO_WATERMARK : null,
+    stagingDemo: isStagingDemo(c.env),
+    ownerActivation: {
+      enabled: act.activationEnabled,
+      pending: act.pending,
+      configuredLogin: act.configuredLogin,
+    },
+    simulation: sim
+      ? {
+          currentTradeDate: sim.currentTradeDate,
+          scenarioLabel: sim.scenarioLabel,
+        }
+      : null,
     locale: "zh-Hans",
-  }),
-);
+  });
+});
+
+app.get("/api/auth/activation-status", async (c) => {
+  const act = await activationStatus(c.env, c.env.DB);
+  return c.json({
+    ...act,
+    note: "未激活前请使用部署方安全交接的一次性令牌；令牌勿写入日志",
+  });
+});
+
+app.post("/api/auth/activate-site-owner", async (c) => {
+  const ip = c.req.header("CF-Connecting-IP") ?? "local";
+  const ok = await checkStrictRateLimit(c.env.DB, `activate-owner:${ip}`, 15, 60_000);
+  if (!ok) return c.json({ error: "请求过于频繁", code: "RATE_LIMIT" }, 429);
+  const body = await c.req.json<{
+    token: string;
+    login: string;
+    password: string;
+    displayName?: string;
+  }>();
+  const result = await activateSiteOwner(c.env, c.env.DB, body);
+  if (!result.ok) {
+    return c.json(
+      { error: result.message, code: result.code },
+      result.status as 400 | 401 | 403 | 409 | 429 | 500 | 503,
+    );
+  }
+  c.header(
+    "Set-Cookie",
+    siteOwnerActivationCookieHeader(c.env, result.session.token, result.session.expiresAt),
+  );
+  return c.json({
+    ok: true,
+    csrfToken: result.session.csrfToken,
+    user: { id: result.userId, role: "admin" },
+  });
+});
 
 app.post("/api/auth/login", async (c) => {
   const body = await c.req.json<{ email: string; password: string }>();
@@ -70,10 +135,11 @@ app.post("/api/auth/login", async (c) => {
   if (rejectDevCredentialsInProd(c.env, body.email, body.password)) {
     return c.json({ error: "生产环境不可使用默认开发凭据" }, 403);
   }
+  const login = normalizeLoginId(body.email, c.env);
   const user = await c.env.DB.prepare(
     "SELECT id, email, display_name, role, password_hash, status FROM users WHERE email = ?",
   )
-    .bind(body.email.trim().toLowerCase())
+    .bind(login)
     .first<{
       id: string;
       email: string;
@@ -422,14 +488,54 @@ app.post("/api/admin/eod/run", requireAuth, requireAdmin, async (c) => {
   const csrfErr = requireCsrf(c);
   if (csrfErr) return csrfErr;
   const allowed = demoMarketFeaturesAllowed(c.env);
-  if (!allowed.allowed && c.env.APP_ENV === "production") {
+  if (!allowed.allowed) {
     return c.json({ status: "failed", message: allowed.reason }, 403);
   }
   const body = (await c.req.json<{ tradeDate?: string }>().catch(() => ({
     tradeDate: undefined,
   }))) as { tradeDate?: string };
-  const result = await runEodPipeline(c.env, body.tradeDate);
+  const tradeDate = await resolveEodTradeDate(c.env, c.env.DB, body.tradeDate);
+  const result = await runEodPipeline(c.env, tradeDate);
   return c.json(result);
+});
+
+app.get("/api/demo/simulation", requireAuth, async (c) => {
+  if (!isStagingDemo(c.env)) return c.json({ error: "非 staging demo", code: "NOT_STAGING_DEMO" }, 403);
+  const sim = await getDemoSimulationState(c.env.DB);
+  if (!sim) return c.json({ error: "模拟状态未初始化", code: "SIM_UNINITIALIZED" }, 503);
+  return c.json({
+    ...sim,
+    disclaimer: "合成模拟日；非真实日历日更",
+  });
+});
+
+app.post("/api/demo/advance-trading-day", requireAuth, async (c) => {
+  const csrfErr = requireCsrf(c);
+  if (csrfErr) return csrfErr;
+  if (!isStagingDemo(c.env)) return c.json({ error: "非 staging demo", code: "NOT_STAGING_DEMO" }, 403);
+  const u = c.get("user")!;
+  const r = await advanceDemoTradingDay(c.env, c.env.DB, u.id);
+  if (!r.ok) return c.json({ error: r.message, code: "ADVANCE_FAILED" }, 400);
+  const { from, to } = r;
+  return c.json({ ok: true, from, to });
+});
+
+app.post("/api/admin/staging-demo/seed", requireAuth, requireAdmin, async (c) => {
+  const csrfErr = requireCsrf(c);
+  if (csrfErr) return csrfErr;
+  if (!isStagingDemo(c.env)) return c.json({ error: "非 staging demo", code: "NOT_STAGING_DEMO" }, 403);
+  if (isProduction(c.env) && !isStagingDemo(c.env)) {
+    return c.json({ error: "禁止", code: "FORBIDDEN" }, 403);
+  }
+  const seed = await seedStagingDemoFixture(c.env);
+  return c.json({
+    ok: true,
+    idempotent: true,
+    simulationStart: seed.simulationStart,
+    financialSeeded: seed.financialRows,
+    signalDate: seed.scenario.signalDate,
+    note: "幂等 seed；不覆盖已存在财务版本",
+  });
 });
 
 app.post("/api/admin/invitations", requireAuth, requireAdmin, async (c) => {

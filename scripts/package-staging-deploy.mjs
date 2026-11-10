@@ -17,7 +17,8 @@ import { pipeline } from "node:stream/promises";
 
 const ROOT = process.cwd();
 const ART = "/opt/cursor/artifacts";
-const BUNDLE = resolve(ART, "staging-deploy-bundle");
+const DEMO = process.env.PACKAGE_FLAVOR === "demo";
+const BUNDLE = resolve(ART, DEMO ? "staging-demo-deploy-bundle" : "staging-deploy-bundle");
 
 /** 拒绝随机构建/日志泄漏的密钥；允许 env 内用于「生产拒绝默认凭据」的常量字符串 */
 const FORBIDDEN_PATTERNS = [
@@ -69,11 +70,24 @@ async function main() {
   cpSync(resolve(ROOT, "dist/worker"), resolve(BUNDLE, "dist/worker"), { recursive: true });
   cpSync(resolve(ROOT, "dist/client"), resolve(BUNDLE, "dist/client"), { recursive: true });
   cpSync(resolve(ROOT, "migrations"), resolve(BUNDLE, "migrations"), { recursive: true });
+  const wranglerSrc = DEMO ? "wrangler.staging-demo.toml" : "wrangler.staging.toml";
+  cpSync(resolve(ROOT, wranglerSrc), resolve(BUNDLE, wranglerSrc));
   cpSync(resolve(ROOT, "wrangler.staging.toml"), resolve(BUNDLE, "wrangler.staging.toml"));
   cpSync(
     resolve(ROOT, "docs/deploy-staging-package.md"),
     resolve(BUNDLE, "docs/deploy-staging-package.md"),
   );
+  if (DEMO) {
+    cpSync(resolve(ROOT, "docs/staging-demo-handoff.md"), resolve(BUNDLE, "docs/staging-demo-handoff.md"));
+    cpSync(
+      resolve(ROOT, "scripts/site-owner-prepare-activation.mjs"),
+      resolve(BUNDLE, "scripts/site-owner-prepare-activation.mjs"),
+    );
+    cpSync(
+      resolve(ROOT, "scripts/site-owner-rotate-activation.mjs"),
+      resolve(BUNDLE, "scripts/site-owner-rotate-activation.mjs"),
+    );
+  }
 
   const migrations = readdirSync(resolve(BUNDLE, "migrations"))
     .filter((f) => f.endsWith(".sql"))
@@ -91,7 +105,8 @@ async function main() {
     gitCommit: commit,
     workerEntry: "dist/worker/index.js",
     staticAssetsDir: "dist/client",
-    wranglerConfig: "wrangler.staging.toml",
+    packageFlavor: DEMO ? "staging-demo" : "staging-safe-shell",
+    wranglerConfig: DEMO ? "wrangler.staging-demo.toml" : "wrangler.staging.toml",
     suggestedWorkerName: "etai-stock-watch-staging",
     suggestedD1Name: "etai-stock-watch-staging-db",
     migrationApplyOrder: migrations,
@@ -102,12 +117,26 @@ async function main() {
       D1: { binding: "DB", database_name: "etai-stock-watch-staging-db" },
       Assets: { binding: "ASSETS", directory: "dist/client" },
     },
-    requiredVars: {
-      APP_ENV: "production",
-      DATA_PROVIDER: "none",
-      EOD_CRON_ENABLED: "false",
-      DATA_DISTRIBUTION_LICENSED: "false",
-    },
+    requiredVars: DEMO
+      ? {
+          APP_ENV: "production",
+          STAGING_DEMO_ENABLED: "true",
+          DATA_PROVIDER: "demo",
+          EOD_CRON_ENABLED: "false",
+          DATA_DISTRIBUTION_LICENSED: "false",
+          SITE_OWNER_ACTIVATION_ENABLED: "true",
+          SITE_OWNER_LOGIN: "REPLACE",
+          DEMO_WATERMARK: "STAGING DEMO · 合成行情",
+        }
+      : {
+          APP_ENV: "production",
+          DATA_PROVIDER: "none",
+          EOD_CRON_ENABLED: "false",
+          DATA_DISTRIBUTION_LICENSED: "false",
+        },
+    siteOwnerActivationHandoff: DEMO
+      ? "docs/staging-demo-handoff.md — 令牌 0600 文件 + 哈希 SQL"
+      : undefined,
     optionalSecrets: [
       "IMPORT_MACHINE_API_KEY",
       "MARKET_DATA_API_KEY",
@@ -123,16 +152,20 @@ async function main() {
 
   writeFileSync(resolve(BUNDLE, "MANIFEST.json"), JSON.stringify(manifest, null, 2));
 
-  const zipName = `etai-stock-watch-staging-${commit.slice(0, 12)}.zip`;
+  const zipPrefix = DEMO ? "etai-stock-watch-staging-demo" : "etai-stock-watch-staging";
+  const zipName = `${zipPrefix}-${commit.slice(0, 12)}.zip`;
   const zipPath = resolve(ART, zipName);
   execSync(`cd "${BUNDLE}" && zip -qr "${zipPath}" .`, { stdio: "inherit" });
 
   const checksum = await sha256File(zipPath);
   const checksumLine = `${checksum}  ${zipName}\n`;
-  writeFileSync(resolve(ART, "staging-deploy-sha256.txt"), checksumLine);
+  writeFileSync(resolve(ART, DEMO ? "staging-demo-deploy-sha256.txt" : "staging-deploy-sha256.txt"), checksumLine);
 
   const report = { ...manifest, zipPath, zipName, sha256: checksum };
-  writeFileSync(resolve(ART, "staging-deploy-report.json"), JSON.stringify(report, null, 2));
+  writeFileSync(
+    resolve(ART, DEMO ? "staging-demo-deploy-report.json" : "staging-deploy-report.json"),
+    JSON.stringify(report, null, 2),
+  );
   console.log(JSON.stringify(report, null, 2));
 }
 

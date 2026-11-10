@@ -16,6 +16,13 @@ export interface Env {
   IMPORT_MACHINE_API_KEY?: string;
   /** 生产对外分发许可；未 true 时财务/行情对外分发现有 fail-closed */
   DATA_DISTRIBUTION_LICENSED?: string;
+  /** 独立 staging-demo：允许 production + demo 合成数据与纸交易验收 */
+  STAGING_DEMO_ENABLED?: string;
+  /** 允许 /api/auth/activate-site-owner（仅 staging 部署建议 true） */
+  SITE_OWNER_ACTIVATION_ENABLED?: string;
+  /** 站主登录标识（邮箱或用户名；用户名将加 @SITE_OWNER_LOGIN_DOMAIN） */
+  SITE_OWNER_LOGIN?: string;
+  SITE_OWNER_LOGIN_DOMAIN?: string;
 }
 
 const DEV_DEFAULT_EMAIL = "admin@local.dev";
@@ -33,6 +40,10 @@ export function isDemoProvider(env: Env): boolean {
   return normalizeProvider(env) === "demo";
 }
 
+export function isStagingDemo(env: Env): boolean {
+  return env.STAGING_DEMO_ENABLED === "true";
+}
+
 export function isDistributionLicensed(env: Env): boolean {
   return env.DATA_DISTRIBUTION_LICENSED === "true";
 }
@@ -44,7 +55,7 @@ export function isCronEnabled(env: Env): boolean {
 export function providerReady(env: Env): { ready: boolean; reason?: string } {
   const provider = normalizeProvider(env);
   if (provider === "demo") {
-    if (isProduction(env)) {
+    if (isProduction(env) && !isStagingDemo(env)) {
       return { ready: false, reason: "生产环境禁止使用演示行情供应商" };
     }
     return { ready: true };
@@ -60,7 +71,7 @@ export function providerReady(env: Env): { ready: boolean; reason?: string } {
 
 /** 生产无授权供应商时禁止 EOD 信号与模拟成交 */
 export function demoMarketFeaturesAllowed(env: Env): { allowed: boolean; reason?: string } {
-  if (isProduction(env) && isDemoProvider(env)) {
+  if (isProduction(env) && isDemoProvider(env) && !isStagingDemo(env)) {
     return { allowed: false, reason: "生产环境不可使用演示数据产生信号或模拟成交" };
   }
   const ready = providerReady(env);
@@ -87,7 +98,7 @@ export function rejectDevCredentialsInProd(env: Env, email: string, password: st
 
 /** 本地/开发：允许对已发布合成财务版本做筛选验收；生产须 DATA_DISTRIBUTION_LICENSED */
 export function financialScreeningAllowed(env: Env): { allowed: boolean; reason?: string } {
-  if (isProduction(env) && !isDistributionLicensed(env)) {
+  if (isProduction(env) && !isDistributionLicensed(env) && !isStagingDemo(env)) {
     return {
       allowed: false,
       reason: "生产环境未确认对外数据分发许可（DATA_DISTRIBUTION_LICENSED≠true）",

@@ -1,0 +1,31 @@
+# Staging DEMO — 可登录完整合成测试（独立 Worker/D1，勿指向 etai 主站）
+name = "etai-stock-watch-staging"
+main = "dist/worker/index.js"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "etai-stock-watch-staging-db"
+database_id = "REPLACE_WITH_STAGING_D1_ID"
+migrations_dir = "migrations"
+
+[assets]
+directory = "dist/client"
+binding = "ASSETS"
+
+[vars]
+APP_ENV = "production"
+STAGING_DEMO_ENABLED = "true"
+DATA_PROVIDER = "demo"
+EOD_CRON_ENABLED = "false"
+DATA_DISTRIBUTION_LICENSED = "false"
+SESSION_COOKIE_NAME = "esw_session"
+HK_TIMEZONE = "Asia/Hong_Kong"
+DEMO_WATERMARK = "STAGING DEMO · 合成行情·非真实港股 · 模拟盘"
+SITE_OWNER_ACTIVATION_ENABLED = "true"
+# 父端部署前设置站主登录标识（邮箱或用户名）
+SITE_OWNER_LOGIN = "REPLACE_SITE_OWNER_LOGIN"
+SITE_OWNER_LOGIN_DOMAIN = "staging.local"
+
+# 无 Cron；勿配置 BOOTSTRAP_* / IMPORT_MACHINE_API_KEY 于 vars

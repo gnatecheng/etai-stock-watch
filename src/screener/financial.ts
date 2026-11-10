@@ -4,6 +4,7 @@ import {
   isDemoProvider,
   isProduction,
   isDistributionLicensed,
+  isStagingDemo,
 } from "../env";
 import { ALLOWED_FIN_METRICS } from "../import/batch-service";
 
@@ -83,7 +84,7 @@ export async function financialScreenerCapabilities(
     pointInTimeRule: "未知公告日不得用于历史筛选，防前视",
   };
 
-  if (isProduction(env) && !isDistributionLicensed(env)) {
+  if (isProduction(env) && !isDistributionLicensed(env) && !isStagingDemo(env)) {
     return {
       supported: false,
       demo,

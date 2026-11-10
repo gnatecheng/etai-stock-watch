@@ -44,6 +44,16 @@ describe("production guards", () => {
     expect(paperTradingAllowed(env).allowed).toBe(true);
   });
 
+  it("allows staging demo production+demo", () => {
+    const env = mockEnv({
+      APP_ENV: "production",
+      DATA_PROVIDER: "demo",
+      STAGING_DEMO_ENABLED: "true",
+    });
+    expect(providerReady(env).ready).toBe(true);
+    expect(demoMarketFeaturesAllowed(env).allowed).toBe(true);
+  });
+
   it("fail-closed when provider none", () => {
     const env = mockEnv({ DATA_PROVIDER: "none" });
     expect(providerReady(env).ready).toBe(false);

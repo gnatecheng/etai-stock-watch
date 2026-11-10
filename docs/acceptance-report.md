@@ -70,7 +70,17 @@ npm run package:staging      # staging zip + sha256
 
 `/opt/cursor/artifacts/workflow-dispatch-evidence.json` — `collector-ci.yml` 仅 `workflow_dispatch`，默认无 `schedule`
 
-## 9. 未覆盖
+## 9. Staging DEMO（可登录测试）
+
+- 交接：`docs/staging-demo-handoff.md`
+- 配置：`wrangler.staging-demo.toml`
+- HTTP 证据：`/opt/cursor/artifacts/staging-demo-http-report.json`（11/11，**不含**令牌）
+- 移动端截图：`staging-demo-01-screener-mobile.png` … `03-account-demo-console.png`
+- 父端 DEMO 部署 ZIP：`/opt/cursor/artifacts/etai-stock-watch-staging-demo-*.zip`（见 `staging-demo-deploy-report.json`）
+
+**未声称**远程站主已完成激活；父端需按交接生成 0600 令牌文件 + D1 哈希。
+
+## 10. 未覆盖
 
 - 远程 D1 多副本并发
 - 正式行情供应商与 `DATA_DISTRIBUTION_LICENSED=true`

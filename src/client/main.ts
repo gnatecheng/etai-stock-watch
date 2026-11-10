@@ -4,7 +4,9 @@ import {
   type ScreenerFormState,
 } from "./screener-ui";
 
-type Tab = "screener" | "signals" | "watchlist" | "notifications" | "paper" | "account";
+type Tab = "screener" | "financial" | "signals" | "watchlist" | "notifications" | "paper" | "account";
+
+let appMeta: Record<string, unknown> | null = null;
 
 let csrfToken = "";
 let currentTab: Tab = "screener";
@@ -46,20 +48,73 @@ function setTab(tab: Tab) {
   render();
 }
 
-async function renderLogin(root: HTMLElement) {
+async function renderActivation(root: HTMLElement, configuredLogin: string | null) {
+  root.replaceChildren(
+    el(`
+    <section class="card">
+      <h3>站主首次激活</h3>
+      <p class="muted">一次性令牌由部署方安全交接（勿在聊天中传递）。设置密码后将成为唯一管理员。</p>
+      ${configuredLogin ? `<p class="pill">登录标识：<strong>${configuredLogin}</strong></p>` : ""}
+      <form class="form" id="activateForm">
+        <input name="login" placeholder="登录标识" required value="${configuredLogin ?? ""}" />
+        <input name="token" type="password" autocomplete="one-time-code" placeholder="一次性激活令牌" required />
+        <input name="password" type="password" autocomplete="new-password" placeholder="新密码（≥10位）" required minlength="10" />
+        <input name="displayName" placeholder="显示名称（可选）" />
+        <button class="btn" type="submit">激活并登录</button>
+      </form>
+      <p class="muted"><a href="#" id="toLogin">已有账号？去登录</a></p>
+    </section>
+  `),
+  );
+  (root.querySelector("#toLogin") as HTMLAnchorElement).onclick = (e) => {
+    e.preventDefault();
+    renderLogin(root, false);
+  };
+  const form = root.querySelector("#activateForm") as HTMLFormElement;
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    try {
+      const data = await api("/api/auth/activate-site-owner", {
+        method: "POST",
+        body: JSON.stringify({
+          login: fd.get("login"),
+          token: fd.get("token"),
+          password: fd.get("password"),
+          displayName: fd.get("displayName"),
+        }),
+      });
+      csrfToken = data.csrfToken;
+      showToast("激活成功");
+      render();
+    } catch (err) {
+      showToast(String(err));
+    }
+  };
+}
+
+async function renderLogin(root: HTMLElement, showActivateLink: boolean) {
   root.replaceChildren(
     el(`
     <section class="card">
       <h3>邀请制登录</h3>
-      <p class="muted">无公开注册。请使用受邀邮箱登录，或通过邀请链接注册。</p>
+      <p class="muted">无公开注册。站主激活后可用邀请创建测试用户（&lt;10）。</p>
       <form class="form" id="loginForm">
-        <input name="email" type="email" placeholder="邮箱" required />
+        <input name="email" type="text" inputmode="email" placeholder="登录标识（邮箱或用户名）" required />
         <input name="password" type="password" placeholder="密码" required />
         <button class="btn" type="submit">登录</button>
       </form>
+      ${showActivateLink ? `<p class="muted"><a href="#" id="toActivate">站主首次激活</a></p>` : ""}
     </section>
   `),
   );
+  if (showActivateLink) {
+    (root.querySelector("#toActivate") as HTMLAnchorElement).onclick = (e) => {
+      e.preventDefault();
+      const cfg = (appMeta?.ownerActivation as { configuredLogin?: string })?.configuredLogin ?? null;
+      renderActivation(root, cfg ?? null);
+    };
+  }
   const loginForm = root.querySelector("#loginForm") as HTMLFormElement;
   loginForm.onsubmit = async (e) => {
     e.preventDefault();
@@ -373,22 +428,117 @@ async function renderPaper(root: HTMLElement) {
   }
 }
 
-async function renderAccount(root: HTMLElement) {
-  const me = await api("/api/me");
-  const rootEl = document.getElementById("app")!;
-  rootEl.replaceChildren(
+async function renderFinancial(root: HTMLElement) {
+  const caps = await api("/api/screener/financial-capabilities");
+  root.replaceChildren(
     el(`
     <section class="card">
-      <h3>${me.display_name}</h3>
-      <p class="muted">${me.email} · ${me.role}</p>
-      <button class="btn secondary" id="logout">退出登录</button>
+      <h3>财务条件筛选</h3>
+      <p class="muted">${caps.pointInTimeRule ?? ""}</p>
+      <p class="muted">${caps.historicalScreenRule ?? ""}</p>
+      ${caps.supported ? "" : `<p class="pill" style="background:#444">不可用：${caps.reason ?? "无数据"}</p>`}
     </section>
   `),
   );
+  if (!caps.supported) return;
+
+  const asOf =
+    (appMeta?.simulation as { currentTradeDate?: string } | undefined)?.currentTradeDate ??
+    "2024-06-01";
+  const form = el(`
+    <section class="card form">
+      <label>截至日 asOf <input data-f="asOf" value="${asOf}" /></label>
+      <label>营业收入 ≥ <input data-f="revMin" inputmode="decimal" placeholder="百万港元口径" /></label>
+      <button class="btn" type="button" data-run-fin>运行筛选</button>
+    </section>
+  `);
+  root.appendChild(form);
+  form.querySelector("[data-run-fin]")!.addEventListener("click", async () => {
+    const revMin = parseFloat((form.querySelector("[data-f=revMin]") as HTMLInputElement).value);
+    const asOfDate = (form.querySelector("[data-f=asOf]") as HTMLInputElement).value;
+    try {
+      const result = await api("/api/screener/financial-run", {
+        method: "POST",
+        body: JSON.stringify({
+          asOfDate,
+          conditions: [{ metric: "operating_revenue", min: revMin }],
+        }),
+      });
+      root.querySelectorAll("[data-fin-hit]").forEach((n) => n.remove());
+      for (const h of result.hits ?? []) {
+        root.appendChild(
+          el(`
+          <article class="card" data-fin-hit>
+            <strong>${h.symbol}</strong>
+            <p class="muted">${h.summaryReasons?.join(" · ") ?? ""}</p>
+          </article>
+        `),
+        );
+      }
+      if (!(result.hits ?? []).length) showToast("零命中");
+    } catch (err) {
+      showToast(String(err));
+    }
+  });
+}
+
+async function renderAccount(root: HTMLElement) {
+  const me = await api("/api/me");
+  const staging = appMeta?.stagingDemo === true;
+  const sim = appMeta?.simulation as { currentTradeDate?: string; scenarioLabel?: string } | null;
+  const rootEl = document.getElementById("app")!;
+  const parts: string[] = [
+    `<section class="card">
+      <h3>${me.display_name}</h3>
+      <p class="muted">${me.email} · ${me.role}</p>
+      <button class="btn secondary" id="logout">退出登录</button>
+    </section>`,
+  ];
+  if (staging) {
+    parts.push(`
+    <section class="card">
+      <h3>STAGING DEMO 控制台</h3>
+      <p class="muted">${sim?.scenarioLabel ?? ""}</p>
+      <p class="pill">模拟交易日：<strong>${sim?.currentTradeDate ?? "—"}</strong></p>
+      ${me.role === "admin" ? `<button class="btn" id="demoSeed">幂等初始化合成数据</button>` : ""}
+      <button class="btn secondary" id="demoAdvance">推进下一交易日</button>
+      ${me.role === "admin" ? `<button class="btn secondary" id="demoEod">对模拟日运行 EOD</button>` : ""}
+    </section>`);
+  }
+  rootEl.replaceChildren(el(parts.join("")));
   rootEl.querySelector("#logout")!.addEventListener("click", async () => {
     await api("/api/auth/logout", { method: "POST" });
     csrfToken = "";
     render();
+  });
+  rootEl.querySelector("#demoSeed")?.addEventListener("click", async () => {
+    try {
+      await api("/api/admin/staging-demo/seed", { method: "POST" });
+      showToast("DEMO 数据已就绪");
+      appMeta = await api("/api/meta");
+      render();
+    } catch (err) {
+      showToast(String(err));
+    }
+  });
+  rootEl.querySelector("#demoAdvance")?.addEventListener("click", async () => {
+    try {
+      const r = await api("/api/demo/advance-trading-day", { method: "POST" });
+      showToast(`模拟日 ${r.from} → ${r.to}`);
+      appMeta = await api("/api/meta");
+      render();
+    } catch (err) {
+      showToast(String(err));
+    }
+  });
+  rootEl.querySelector("#demoEod")?.addEventListener("click", async () => {
+    try {
+      const r = await api("/api/admin/eod/run", { method: "POST", body: JSON.stringify({}) });
+      showToast(`EOD ${r.tradeDate}: ${r.message}`);
+      render();
+    } catch (err) {
+      showToast(String(err));
+    }
   });
 }
 
@@ -396,10 +546,14 @@ async function render() {
   const root = document.getElementById("app")!;
   try {
     const meta = await api("/api/meta");
+    appMeta = meta;
     const wm = document.getElementById("demoWatermark")!;
     if (meta.demoWatermark) {
       wm.hidden = false;
-      wm.textContent = meta.demoWatermark;
+      wm.textContent = String(meta.demoWatermark);
+    } else if (meta.stagingDemo) {
+      wm.hidden = false;
+      wm.textContent = "STAGING DEMO · 合成数据";
     }
   } catch {
     /* ignore */
@@ -409,6 +563,7 @@ async function render() {
     const me = await api("/api/me");
     csrfToken = me.csrfToken;
     if (currentTab === "screener") await renderScreener(root);
+    else if (currentTab === "financial") await renderFinancial(root);
     else if (currentTab === "signals") await renderSignals(root);
     else if (currentTab === "watchlist") await renderWatchlist(root);
     else if (currentTab === "notifications") await renderNotifications(root);
@@ -416,7 +571,16 @@ async function render() {
     else await renderAccount(root);
   } catch {
     currentTab = "screener";
-    await renderLogin(root);
+    try {
+      const act = await api("/api/auth/activation-status");
+      if (act.pending) {
+        await renderActivation(root, act.configuredLogin ?? null);
+        return;
+      }
+      await renderLogin(root, !!act.activationEnabled);
+    } catch {
+      await renderLogin(root, false);
+    }
   }
 }
 
