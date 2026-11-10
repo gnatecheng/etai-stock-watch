@@ -1,0 +1,49 @@
+{
+  "name": "etai-stock-watch",
+  "version": "0.1.0",
+  "private": true,
+  "description": "观股记 · 港股筛选、信号与模拟交易（邀请制）",
+  "type": "module",
+  "scripts": {
+    "build": "npm run build:client && npm run build:worker",
+    "build:client": "vite build",
+    "build:worker": "tsc -p tsconfig.worker.json",
+    "dev": "wrangler dev",
+    "typecheck": "tsc -p tsconfig.worker.json --noEmit && tsc -p tsconfig.client.json --noEmit",
+    "test": "vitest run",
+    "test:integration": "npm run build:worker && node scripts/integration-regression.mjs",
+    "screenshots": "node scripts/acceptance-walkthrough.mjs",
+    "acceptance": "npm run build:worker && (pkill -f 'wrangler dev --port 8787' 2>/dev/null || true); sleep 1; node scripts/acceptance-walkthrough.mjs",
+    "test:production-gates": "npm run build:worker && node scripts/production-gates-http.mjs",
+    "test:financial-screen": "node scripts/financial-screener-http.mjs",
+    "package:staging": "node scripts/package-staging-deploy.mjs",
+    "package:staging-demo": "PACKAGE_FLAVOR=demo node scripts/package-staging-deploy.mjs",
+    "test:staging-demo": "node scripts/staging-demo-evidence.mjs",
+    "test:activation-matrix": "node scripts/activation-failure-matrix.mjs",
+    "test:activation-ui": "node scripts/activation-ui-regression.mjs",
+    "screenshots:staging-demo": "node scripts/staging-demo-screenshots.mjs",
+    "test:capacity": "node scripts/capacity-synthetic.mjs && node scripts/capacity-full-load.mjs",
+    "test:import-machine": "node scripts/import-machine-http.mjs",
+    "test:collector": "cd collector && python3 -m pytest tests -q",
+    "test:watch": "vitest",
+    "db:migrate:local": "wrangler d1 migrations apply etai-stock-watch-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply etai-stock-watch-db --remote",
+    "seed:local": "tsx scripts/seed-demo.ts --local"
+  },
+  "dependencies": {
+    "hono": "^4.6.12"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.5.41",
+    "@cloudflare/workers-types": "^4.20241106.0",
+    "playwright-core": "^1.49.0",
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^22.9.0",
+    "better-sqlite3": "^11.6.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11",
+    "vitest": "^2.1.5",
+    "wrangler": "^3.91.0"
+  }
+}

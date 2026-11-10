@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+*.log
+.DS_Store
+.tmp/
+__pycache__/
+*.pyc
+collector/.venv/
+.capacity-out/

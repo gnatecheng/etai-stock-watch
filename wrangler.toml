@@ -1,0 +1,30 @@
+# 观股记 — 独立 Worker + D1（占位绑定，勿指向 etai 主站资源）
+name = "etai-stock-watch"
+main = "dist/worker/index.js"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+# 生产部署前在 Cloudflare 控制台创建 D1 并替换 database_id
+[[d1_databases]]
+binding = "DB"
+database_name = "etai-stock-watch-db"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[assets]
+directory = "dist/client"
+binding = "ASSETS"
+
+[vars]
+APP_ENV = "development"
+DEMO_WATERMARK = "演示数据，非真实行情"
+# 生产须配置正式行情供应商；未配置时管线 fail-closed
+DATA_PROVIDER = "demo"
+# 生产默认关闭 Cron，审批供应商与日历后再启用
+EOD_CRON_ENABLED = "false"
+SESSION_COOKIE_NAME = "esw_session"
+HK_TIMEZONE = "Asia/Hong_Kong"
+
+# 占位 Cron；EOD_CRON_ENABLED=false 时 scheduled 内跳过
+[triggers]
+crons = ["0 10 * * 1-5"]
