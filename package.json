@@ -19,6 +19,8 @@
     "package:staging": "node scripts/package-staging-deploy.mjs",
     "package:staging-demo": "PACKAGE_FLAVOR=demo node scripts/package-staging-deploy.mjs",
     "test:staging-demo": "node scripts/staging-demo-evidence.mjs",
+    "test:activation-matrix": "node scripts/activation-failure-matrix.mjs",
+    "test:activation-ui": "node scripts/activation-ui-regression.mjs",
     "screenshots:staging-demo": "node scripts/staging-demo-screenshots.mjs",
     "test:capacity": "node scripts/capacity-synthetic.mjs && node scripts/capacity-full-load.mjs",
     "test:import-machine": "node scripts/import-machine-http.mjs",

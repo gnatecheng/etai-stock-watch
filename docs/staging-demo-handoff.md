@@ -7,7 +7,7 @@
 
 1. 父端离线生成令牌 → 写入 **mode 0600** 本地文件。  
 2. 父端仅将 **哈希** 插入 D1（`site-owner-prepare-activation.mjs` 产出的 SQL）。  
-3. 站主在本机浏览器打开 staging URL → **站主首次激活** 表单 → 自行粘贴令牌并设密（令牌不经聊天）。  
+3. 站主在本机浏览器打开 staging URL → **站主首次激活** 表单 → **令牌字段粘贴文件的最后一行**（勿整文件含 `#` 注释）；Secure Form 须同时填入「令牌」与「新密码」两字段（仅填密码会得到 `TOKEN_MISSING` 400）。  
 4. 登录后 → **账户 → 幂等初始化合成数据** → 按引导测试筛选/信号/模拟盘。
 
 ## 1. 迁移顺序（在既有 D1 上执行）
@@ -44,6 +44,7 @@ node scripts/site-owner-prepare-activation.mjs \
   --out /secure/staging-owner-activation.token \
   --sql-out /secure/staging-owner-activation.sql \
   --ttl-minutes 120
+# --out 仅一行令牌；login/过期见同目录 staging-owner-activation.token.meta.json
 
 wrangler d1 execute etai-stock-watch-staging-db --remote \
   --config wrangler.staging-demo.toml \

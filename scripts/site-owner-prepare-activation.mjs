@@ -14,6 +14,7 @@ function parseArgs(argv) {
     ttlMinutes: 120,
     tokenOut: "",
     sqlOut: "",
+    metaOut: "",
     rotation: 1,
   };
   for (let i = 2; i < argv.length; i++) {
@@ -21,6 +22,7 @@ function parseArgs(argv) {
     if (a === "--login" && argv[i + 1]) out.login = argv[++i];
     else if (a === "--ttl-minutes" && argv[i + 1]) out.ttlMinutes = parseInt(argv[++i], 10);
     else if (a === "--out" && argv[i + 1]) out.tokenOut = argv[++i];
+    else if (a === "--meta-out" && argv[i + 1]) out.metaOut = argv[++i];
     else if (a === "--sql-out" && argv[i + 1]) out.sqlOut = argv[++i];
     else if (a === "--rotation" && argv[i + 1]) out.rotation = parseInt(argv[++i], 10);
   }
@@ -54,12 +56,25 @@ async function main() {
 
   await mkdir(resolve(args.tokenOut, ".."), { recursive: true });
   await mkdir(resolve(args.sqlOut, ".."), { recursive: true });
+  // 明文令牌：仅单行秘密（供 Secure Form / 粘贴）；元数据单独文件
+  await writeFile(args.tokenOut, `${token}\n`, { mode: 0o600 });
+  await chmod(args.tokenOut, 0o600);
+  const metaPath = args.metaOut || `${args.tokenOut}.meta.json`;
   await writeFile(
-    args.tokenOut,
-    `# 站主一次性激活令牌 — 勿提交 git / 勿粘贴聊天\n# login: ${loginId}\n# expires: ${exp}\n${token}\n`,
+    metaPath,
+    JSON.stringify(
+      {
+        purpose: "site_owner_activation",
+        loginId,
+        expiresAt: exp,
+        tokenFile: args.tokenOut,
+        note: "tokenFile 仅含单行令牌；勿将本 JSON 填入浏览器令牌框",
+      },
+      null,
+      2,
+    ),
     { mode: 0o600 },
   );
-  await chmod(args.tokenOut, 0o600);
 
   const sql = `-- 仅哈希入库；父端: wrangler d1 execute ... --file 本文件\n`;
   const insert = `INSERT INTO site_owner_activation (id, login_id, token_hash, expires_at, created_at, rotation_seq)
@@ -72,6 +87,7 @@ VALUES ('${id}', '${loginId.replace(/'/g, "''")}', '${hash}', '${exp}', datetime
     loginId,
     expiresAt: exp,
     tokenFile: args.tokenOut,
+    metaFile: args.metaOut || `${args.tokenOut}.meta.json`,
     sqlFile: args.sqlOut,
     tokenHashPrefix: `${hash.slice(0, 8)}…`,
     note: "明文令牌未写入 stdout；请通过安全通道交给站主",

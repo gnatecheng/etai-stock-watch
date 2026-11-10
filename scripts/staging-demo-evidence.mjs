@@ -11,7 +11,7 @@ const PERSIST = ".wrangler/staging-demo-evidence";
 const REPORT = "/opt/cursor/artifacts/staging-demo-http-report.json";
 const LOG = "/opt/cursor/artifacts/staging-demo-http.log";
 const CONFIG = "wrangler.staging-demo.toml";
-const SITE_OWNER = "staging-owner";
+const SITE_OWNER = "owner@staging.local";
 const OWNER_PASS = "StagingOwner-Test-11";
 const USER_PASS = "StagingUser-Test-22";
 
@@ -67,7 +67,7 @@ async function main() {
 
   const token = randomBytes(32).toString("base64url");
   const hash = await sha256Hex(token);
-  const login = `${SITE_OWNER}@staging.local`;
+  const login = SITE_OWNER.includes("@") ? SITE_OWNER : `${SITE_OWNER}@staging.local`;
   const exp = new Date(Date.now() + 3600_000).toISOString();
   const actId = `soa_ev_${hash.slice(0, 12)}`;
   const seedSql = `.tmp/staging-demo-act-${Date.now()}.sql`;
@@ -95,7 +95,7 @@ VALUES ('${actId}', '${login}', '${hash}', '${exp}', datetime('now'), 1);`,
       "--persist-to",
       PERSIST,
       "--var",
-      `SITE_OWNER_LOGIN:${SITE_OWNER}`,
+      `SITE_OWNER_LOGIN:${SITE_OWNER.includes("@") ? SITE_OWNER.split("@")[0] : SITE_OWNER}`,
     ],
     { stdio: "ignore" },
   );

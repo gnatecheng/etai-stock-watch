@@ -4,6 +4,7 @@ import { newId } from "../lib/id";
 import { nowIso } from "../lib/time";
 import type { Env } from "../env";
 import { configuredSiteOwnerLogin, normalizeLoginId } from "./login-id";
+import { sanitizeActivationToken } from "./activation-token";
 import { createSession, sessionCookieOptions } from "./session";
 
 export type ActivateSiteOwnerInput = {
@@ -77,22 +78,42 @@ export async function activateSiteOwner(
     };
   }
 
-  const login = normalizeLoginId(input.login, env);
-  if (login !== expectedLogin) {
+  const loginInput = normalizeLoginId(input.login, env);
+  if (!loginInput) {
+    return {
+      ok: false,
+      status: 400,
+      code: "LOGIN_MISSING",
+      message: "请填写站主登录标识",
+    };
+  }
+  if (loginInput !== expectedLogin) {
     return {
       ok: false,
       status: 403,
       code: "LOGIN_MISMATCH",
-      message: "登录标识与部署配置不匹配",
+      message: `登录标识与部署配置不匹配（应使用：${expectedLogin}）`,
     };
   }
 
-  if (!input.token?.trim() || input.password.length < 10) {
+  const password = typeof input.password === "string" ? input.password : "";
+  const token = sanitizeActivationToken(
+    typeof input.token === "string" ? input.token : "",
+  );
+  if (!token) {
     return {
       ok: false,
       status: 400,
-      code: "INVALID_INPUT",
-      message: "激活令牌无效或密码不足 10 位",
+      code: "TOKEN_MISSING",
+      message: "请填写一次性激活令牌（粘贴令牌单行，勿含 # 注释整文件）",
+    };
+  }
+  if (password.length < 10) {
+    return {
+      ok: false,
+      status: 400,
+      code: "PASSWORD_TOO_SHORT",
+      message: "密码至少 10 个字符",
     };
   }
 
@@ -105,7 +126,7 @@ export async function activateSiteOwner(
     };
   }
 
-  const tokenHash = await sha256Hex(input.token.trim());
+  const tokenHash = await sha256Hex(token);
   const row = await db
     .prepare(
       `SELECT id, login_id, expires_at, consumed_at, superseded_at FROM site_owner_activation
@@ -149,7 +170,7 @@ export async function activateSiteOwner(
       `INSERT INTO users (id, email, display_name, password_hash, role, status, created_at, updated_at)
        VALUES (?, ?, ?, ?, 'admin', 'active', ?, ?)`,
     )
-    .bind(userId, login, display, pwdHash, ts, ts);
+    .bind(userId, loginInput, display, pwdHash, ts, ts);
 
   const paper = db
     .prepare(`INSERT INTO paper_accounts (user_id, cash_cents, currency, updated_at) VALUES (?, ?, 'HKD', ?)`)
@@ -175,7 +196,7 @@ export async function activateSiteOwner(
 
   const session = await createSession(db, {
     id: userId,
-    email: login,
+    email: loginInput,
     display_name: display,
     role: "admin",
   });

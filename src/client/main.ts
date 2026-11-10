@@ -13,24 +13,57 @@ let currentTab: Tab = "screener";
 let screenerForm: ScreenerFormState = defaultScreenerForm();
 let screenerLastResult: Record<string, unknown> | null = null;
 
-function showToast(msg: string) {
+let toastHideTimer: ReturnType<typeof setTimeout> | undefined;
+
+function showToast(msg: string, kind: "ok" | "err" = "ok") {
   const el = document.getElementById("toast")!;
   el.textContent = msg;
+  el.className = kind === "err" ? "toast toast-error" : "toast";
   el.hidden = false;
-  setTimeout(() => {
+  if (toastHideTimer) clearTimeout(toastHideTimer);
+  if (kind === "err") return;
+  toastHideTimer = setTimeout(() => {
     el.hidden = true;
   }, 2500);
 }
 
-async function api(path: string, init?: RequestInit) {
+function formatApiError(data: Record<string, unknown>, status: number): string {
+  const msg =
+    (typeof data.error === "string" && data.error) ||
+    (typeof data.message === "string" && data.message) ||
+    `HTTP ${status}`;
+  const code = typeof data.code === "string" ? data.code : "";
+  return code ? `${msg} [${code}]` : msg;
+}
+
+/** 与后端 activation-token 一致：末行非 # 注释为令牌 */
+function sanitizeActivationTokenClient(raw: string): string {
+  const t = raw.trim();
+  if (!t) return "";
+  const lines = t
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("#"));
+  if (!lines.length) return "";
+  return lines.length === 1 ? lines[0]! : lines[lines.length - 1]!;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function api(path: string, init?: RequestInit): Promise<any> {
   const headers = new Headers(init?.headers);
   headers.set("Content-Type", "application/json");
   if (csrfToken && init?.method && init.method !== "GET") {
     headers.set("X-CSRF-Token", csrfToken);
   }
   const res = await fetch(path, { ...init, headers, credentials: "include" });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    const err = new Error(formatApiError(data, res.status));
+    (err as Error & { code?: string; status?: number }).code =
+      typeof data.code === "string" ? data.code : undefined;
+    (err as Error & { status?: number }).status = res.status;
+    throw err;
+  }
   return data;
 }
 
@@ -55,11 +88,13 @@ async function renderActivation(root: HTMLElement, configuredLogin: string | nul
       <h3>站主首次激活</h3>
       <p class="muted">一次性令牌由部署方安全交接（勿在聊天中传递）。设置密码后将成为唯一管理员。</p>
       ${configuredLogin ? `<p class="pill">登录标识：<strong>${configuredLogin}</strong></p>` : ""}
-      <form class="form" id="activateForm">
-        <input name="login" placeholder="登录标识" required value="${configuredLogin ?? ""}" />
-        <input name="token" type="password" autocomplete="one-time-code" placeholder="一次性激活令牌" required />
+      <form class="form" id="activateForm" novalidate>
+        <input name="login" type="text" autocomplete="username" placeholder="登录标识" required value="${configuredLogin ?? ""}" />
+        <input name="token" type="password" autocomplete="one-time-code" placeholder="一次性激活令牌（单行）" required />
+        <p class="muted" style="font-size:0.8rem">仅粘贴令牌<b>最后一行</b>，勿含 # 开头注释；Secure Form 须分别填入令牌与新密码。</p>
         <input name="password" type="password" autocomplete="new-password" placeholder="新密码（≥10位）" required minlength="10" />
         <input name="displayName" placeholder="显示名称（可选）" />
+        <div id="activateError" class="form-error" role="alert" hidden></div>
         <button class="btn" type="submit">激活并登录</button>
       </form>
       <p class="muted"><a href="#" id="toLogin">已有账号？去登录</a></p>
@@ -71,24 +106,48 @@ async function renderActivation(root: HTMLElement, configuredLogin: string | nul
     renderLogin(root, false);
   };
   const form = root.querySelector("#activateForm") as HTMLFormElement;
+  const errEl = form.querySelector("#activateError") as HTMLElement;
   form.onsubmit = async (e) => {
     e.preventDefault();
+    errEl.hidden = true;
+    errEl.textContent = "";
     const fd = new FormData(form);
+    const login = String(fd.get("login") ?? "").trim();
+    const token = sanitizeActivationTokenClient(String(fd.get("token") ?? ""));
+    const password = String(fd.get("password") ?? "");
+    if (!login) {
+      errEl.textContent = "请填写登录标识 [LOGIN_MISSING]";
+      errEl.hidden = false;
+      return;
+    }
+    if (!token) {
+      errEl.textContent =
+        "请填写激活令牌单行（若 Secure Form 只填了密码，须另填令牌字段）[TOKEN_MISSING]";
+      errEl.hidden = false;
+      return;
+    }
+    if (password.length < 10) {
+      errEl.textContent = "密码至少 10 个字符 [PASSWORD_TOO_SHORT]";
+      errEl.hidden = false;
+      return;
+    }
     try {
-      const data = await api("/api/auth/activate-site-owner", {
+      const data = (await api("/api/auth/activate-site-owner", {
         method: "POST",
         body: JSON.stringify({
-          login: fd.get("login"),
-          token: fd.get("token"),
-          password: fd.get("password"),
-          displayName: fd.get("displayName"),
+          login,
+          token,
+          password,
+          displayName: String(fd.get("displayName") ?? "").trim() || undefined,
         }),
-      });
+      })) as { csrfToken: string };
       csrfToken = data.csrfToken;
-      showToast("激活成功");
+      showToast("激活成功", "ok");
       render();
     } catch (err) {
-      showToast(String(err));
+      const msg = err instanceof Error ? err.message : String(err);
+      errEl.textContent = msg;
+      errEl.hidden = false;
     }
   };
 }
@@ -130,7 +189,7 @@ async function renderLogin(root: HTMLElement, showActivateLink: boolean) {
       csrfToken = data.csrfToken;
       render();
     } catch (err) {
-      showToast(String(err));
+      showToast(err instanceof Error ? err.message : String(err), "err");
     }
   };
 }

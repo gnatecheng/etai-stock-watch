@@ -165,12 +165,28 @@ input {
   top: 3.5rem;
   left: 50%;
   transform: translateX(-50%);
+  max-width: min(92vw, 24rem);
   background: #14532d;
   color: #ecfdf5;
   padding: 0.5rem 1rem;
   border-radius: 8px;
   z-index: 100;
   font-size: 0.85rem;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+}
+
+.toast-error {
+  background: #7f1d1d;
+  color: #fecaca;
+  border: 1px solid #fca5a5;
+}
+
+.form-error {
+  color: var(--danger);
+  font-size: 0.85rem;
+  line-height: 1.35;
+  padding: 0.5rem 0.25rem;
+  font-weight: 600;
 }
 
 .empty-state {

@@ -25,7 +25,8 @@ HK_TIMEZONE = "Asia/Hong_Kong"
 DEMO_WATERMARK = "STAGING DEMO · 合成行情·非真实港股 · 模拟盘"
 SITE_OWNER_ACTIVATION_ENABLED = "true"
 # 父端部署前设置站主登录标识（邮箱或用户名）
-SITE_OWNER_LOGIN = "REPLACE_SITE_OWNER_LOGIN"
+# 父端部署时改为实际站主标识（与 D1 site_owner_activation.login_id 一致）
+SITE_OWNER_LOGIN = "owner@staging.local"
 SITE_OWNER_LOGIN_DOMAIN = "staging.local"
 
 # 无 Cron；勿配置 BOOTSTRAP_* / IMPORT_MACHINE_API_KEY 于 vars

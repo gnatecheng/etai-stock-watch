@@ -105,16 +105,35 @@ app.post("/api/auth/activate-site-owner", async (c) => {
   const ip = c.req.header("CF-Connecting-IP") ?? "local";
   const ok = await checkStrictRateLimit(c.env.DB, `activate-owner:${ip}`, 15, 60_000);
   if (!ok) return c.json({ error: "请求过于频繁", code: "RATE_LIMIT" }, 429);
-  const body = await c.req.json<{
-    token: string;
-    login: string;
-    password: string;
+  let body: {
+    token?: string;
+    login?: string;
+    password?: string;
     displayName?: string;
-  }>();
-  const result = await activateSiteOwner(c.env, c.env.DB, body);
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json(
+      { error: "请求体须为 JSON", code: "INVALID_JSON", message: "请求体须为 JSON" },
+      400,
+    );
+  }
+  if (!body || typeof body !== "object") {
+    return c.json(
+      { error: "请求体无效", code: "INVALID_BODY", message: "请求体无效" },
+      400,
+    );
+  }
+  const result = await activateSiteOwner(c.env, c.env.DB, {
+    token: body.token ?? "",
+    login: body.login ?? "",
+    password: body.password ?? "",
+    displayName: body.displayName,
+  });
   if (!result.ok) {
     return c.json(
-      { error: result.message, code: result.code },
+      { error: result.message, message: result.message, code: result.code },
       result.status as 400 | 401 | 403 | 409 | 429 | 500 | 503,
     );
   }
