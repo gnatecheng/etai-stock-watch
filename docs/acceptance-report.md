@@ -76,7 +76,7 @@ npm run package:staging      # staging zip + sha256
 - 配置：`wrangler.staging-demo.toml`
 - HTTP 证据：`/opt/cursor/artifacts/staging-demo-http-report.json`（11/11，**不含**令牌）
 - 移动端截图：`staging-demo-01-screener-mobile.png` … `03-account-demo-console.png`
-- 父端 DEMO 部署 ZIP：`/opt/cursor/artifacts/etai-stock-watch-staging-demo-*.zip`（见 `staging-demo-deploy-report.json`）
+- 父端 DEMO 部署 ZIP：`etai-stock-watch-staging-demo-f5141ff0b8c6.zip` · SHA256 `7186e5ab832cadb0c2e0744f65e016c0fcb2f5b375a1d84f8264c8b20081d44b`
 
 **未声称**远程站主已完成激活；父端需按交接生成 0600 令牌文件 + D1 哈希。
 
